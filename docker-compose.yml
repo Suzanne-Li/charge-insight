@@ -1,0 +1,55 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: charge-insight-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_WRITER_USER}
+      MYSQL_PASSWORD: ${MYSQL_WRITER_PASSWORD}
+      MYSQL_READER_USER: ${MYSQL_READER_USER}
+      MYSQL_READER_PASSWORD: ${MYSQL_READER_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./infra/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  sqlbot:
+    image: dataease/sqlbot:latest
+    container_name: charge-insight-sqlbot
+    restart: unless-stopped
+    ports:
+      - "${SQLBOT_PORT}:8000"
+    volumes:
+      - sqlbot-excel:/opt/sqlbot/data/excel
+      - sqlbot-file:/opt/sqlbot/data/file
+      - sqlbot-images:/opt/sqlbot/images
+      - sqlbot-logs:/opt/sqlbot/app/logs
+      - sqlbot-postgresql:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: charge-insight-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+
+volumes:
+  mysql-data:
+  sqlbot-excel:
+  sqlbot-file:
+  sqlbot-images:
+  sqlbot-logs:
+  sqlbot-postgresql:
+  redis-data:

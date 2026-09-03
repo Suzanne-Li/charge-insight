@@ -1,0 +1,2 @@
+fault_id,pile_id,fault_code,fault_type,severity,start_time,recover_time
+CSV-DEMO-FAULT-001,10101,COMMUNICATION_TIMEOUT,通信故障,HIGH,2026-08-26 10:00:00,2026-08-26 14:00:00

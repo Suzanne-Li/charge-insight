@@ -1,0 +1,11 @@
+.env
+target/
+.idea/
+*.iml
+.DS_Store
+
+# Local working notes and non-public documentation are deliberately excluded
+# from the public repository.
+docs/
+README-local-notes.md
+项目描述.md

@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: charge-insight-backend
+  datasource:
+    url: ${CHARGE_DB_URL:jdbc:mysql://localhost:3306/charging_analytics?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${CHARGE_DB_USERNAME:charge_writer}
+    password: ${CHARGE_DB_PASSWORD:local_writer_password_change_me}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: never
+  jdbc:
+    template:
+      query-timeout: ${CHARGE_QUERY_TIMEOUT_SECONDS:5}
+  data:
+    redis:
+      host: ${CHARGE_REDIS_HOST:localhost}
+      port: ${CHARGE_REDIS_PORT:6379}
+      timeout: ${CHARGE_REDIS_TIMEOUT:1s}
+  ai:
+    openai:
+      # Spring AI appends /v1/chat/completions for the OpenAI-compatible chat API.
+      base-url: ${CHARGE_AI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+      api-key: ${CHARGE_AI_API_KEY:}
+      chat:
+        options:
+          model: ${CHARGE_AI_MODEL:qwen-plus}
+          temperature: 0.1
+    mcp:
+      server:
+        enabled: ${CHARGE_MCP_ENABLED:false}
+        name: chargeinsight-report-export
+        version: 0.1.0
+        protocol: STATELESS
+        type: SYNC
+        streamable-http:
+          mcp-endpoint: /mcp
+
+server:
+  port: ${SERVER_PORT:8080}
+
+charge:
+  memory:
+    redis-enabled: ${CHARGE_REDIS_ENABLED:false}
+    history-limit: ${CHARGE_MEMORY_HISTORY_LIMIT:12}
+    ttl-hours: ${CHARGE_MEMORY_TTL_HOURS:24}
+  security:
+    # Keep existing local demo calls working until a JWT secret and initial admin password are configured.
+    enabled: ${CHARGE_SECURITY_ENABLED:false}
+    jwt-secret: ${CHARGE_JWT_SECRET:}
+    bootstrap-admin-username: ${CHARGE_BOOTSTRAP_ADMIN_USERNAME:admin}
+    bootstrap-admin-password: ${CHARGE_BOOTSTRAP_ADMIN_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

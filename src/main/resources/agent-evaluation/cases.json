@@ -1,0 +1,173 @@
+[
+  {
+    "id": "anomaly-root-cause-shanghai-group-1",
+    "question": "为什么华东上海私桩共享桩群1最近一周GMV较低？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "ANOMALY_ROOT_CAUSE",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["compareAnomalyEvidence", "queryOperationTrend", "rankGroups"],
+    "requiredDatasetFields": ["period", "gmvAmount"],
+    "minimumRows": 2,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "fault-analysis-shanghai-group-1",
+    "question": "华东上海私桩共享桩群1最近一周通信故障情况如何？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "FAULT_ANALYSIS",
+    "requiredMetrics": [],
+    "requiredTools": ["queryFaultBreakdown"],
+    "requiredDatasetFields": ["faultType", "faultDurationMinutes"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "trend-shanghai-group-1",
+    "question": "华东上海私桩共享桩群1最近一周GMV趋势如何？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "TREND",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["queryOperationTrend"],
+    "requiredDatasetFields": ["statDate", "metricValue"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "operation-overview-east",
+    "question": "华东区域最近一周的可用桩数、充电量和 GMV 是多少？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "METRIC",
+    "requiredMetrics": ["available_pile_count", "energy_kwh", "gmv_amount"],
+    "requiredTools": ["queryOperationOverview"],
+    "requiredDatasetFields": ["snapshotDate", "availablePileCount", "energyKwh", "gmvAmount"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "daily-gmv-threshold-controlled-sql",
+    "question": "列出华东区域 2026-08-20 至 2026-08-26 期间单日 GMV 超过 200 元的桩群、日期和 GMV，按日期升序、GMV 降序排列。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "AD_HOC_QUERY",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["controlledTextToSql"],
+    "requiredDatasetFields": ["stat_date", "group_name", "GMV"],
+    "minimumRows": 1,
+    "expectedSqlFallback": true
+  },
+  {
+    "id": "operation-overview-east-explicit-period",
+    "question": "华东区域 2026-08-20 至 2026-08-26 的可用桩数、充电量和 GMV 是多少？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "METRIC",
+    "requiredMetrics": ["available_pile_count", "energy_kwh", "gmv_amount"],
+    "requiredTools": ["queryOperationOverview"],
+    "requiredDatasetFields": ["snapshotDate", "availablePileCount", "energyKwh", "gmvAmount"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "operation-overview-east-near-seven-days",
+    "question": "华东区域近7天的可用桩数、充电量和 GMV 是多少？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "METRIC",
+    "requiredMetrics": ["available_pile_count", "energy_kwh", "gmv_amount"],
+    "requiredTools": ["queryOperationOverview"],
+    "requiredDatasetFields": ["snapshotDate", "availablePileCount", "energyKwh", "gmvAmount"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "trend-gmv-explicit-period",
+    "question": "华东上海私桩共享桩群1在 2026-08-20 至 2026-08-26 的 GMV 趋势如何？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "TREND",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["queryOperationTrend"],
+    "requiredDatasetFields": ["statDate", "metricValue"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "fault-analysis-explicit-period",
+    "question": "华东上海私桩共享桩群1在 2026-08-20 至 2026-08-26 的通信故障情况如何？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "FAULT_ANALYSIS",
+    "requiredMetrics": [],
+    "requiredTools": ["queryFaultBreakdown"],
+    "requiredDatasetFields": ["faultType", "faultDurationMinutes"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "ranking-offline-rate-east",
+    "question": "华东区域最近一周离线率最高的五个桩群是什么？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": ["offline_rate"],
+    "requiredTools": ["rankGroups"],
+    "requiredDatasetFields": ["groupName", "offlineRate"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "ranking-low-gmv-east",
+    "question": "华东区域最近一周 GMV 最低的五个桩群是什么？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["rankGroups"],
+    "requiredDatasetFields": ["groupName", "gmvAmount"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "fault-ranking-communication-east",
+    "question": "华东区域最近一周通信故障较多的五个桩群是什么？",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": [],
+    "requiredTools": ["rankFaultGroups"],
+    "requiredDatasetFields": ["groupName", "faultPileDays", "faultDurationMinutes"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "daily-energy-by-city-controlled-sql",
+    "question": "按城市汇总华东区域 2026-08-20 至 2026-08-26 的每日充电量，按日期升序排列。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "AD_HOC_QUERY",
+    "requiredMetrics": ["energy_kwh"],
+    "requiredTools": ["controlledTextToSql"],
+    "requiredDatasetFields": ["stat_date", "city_name"],
+    "minimumRows": 1,
+    "expectedSqlFallback": true
+  },
+  {
+    "id": "region-scope-denied-south-for-east-analyst",
+    "question": "查询华南区域最近一周的可用桩数、充电量和 GMV 是多少？",
+    "expectedStatus": "DENIED",
+    "expectedIntent": "METRIC",
+    "requiredMetrics": [],
+    "requiredTools": [],
+    "requiredDatasetFields": [],
+    "minimumRows": 0,
+    "expectedSqlFallback": false,
+    "runAsUsername": "evaluation-east-analyst",
+    "regionScopes": ["华东"],
+    "expectedException": "RegionAccessDeniedException"
+  },
+  {
+    "id": "region-scope-denied-north-for-east-analyst",
+    "question": "查询华北区域最近一周离线率最高的五个桩群是什么？",
+    "expectedStatus": "DENIED",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": [],
+    "requiredTools": [],
+    "requiredDatasetFields": [],
+    "minimumRows": 0,
+    "expectedSqlFallback": false,
+    "runAsUsername": "evaluation-east-analyst",
+    "regionScopes": ["华东"],
+    "expectedException": "RegionAccessDeniedException"
+  }
+]
