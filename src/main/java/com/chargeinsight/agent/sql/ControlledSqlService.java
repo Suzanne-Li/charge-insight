@@ -15,6 +15,9 @@ import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.util.TablesNamesFinder;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -30,9 +33,17 @@ public class ControlledSqlService {
     private static final Pattern LIMIT_PATTERN = Pattern.compile("(?is)\\blimit\\s+(\\d+)\\s*$");
     private static final Pattern FORBIDDEN_TOKENS = Pattern.compile("(?is)\\b(insert|update|delete|replace|merge|alter|drop|create|truncate|grant|revoke|call|load|outfile|dumpfile|handler|set|use|show|describe|explain)\\b");
     private final JdbcTemplate jdbcTemplate;
+    private final ObjectProvider<ControlledSqlReadClient> readClient;
 
     public ControlledSqlService(JdbcTemplate jdbcTemplate) {
+        this(jdbcTemplate, null);
+    }
+
+    @Autowired
+    public ControlledSqlService(JdbcTemplate jdbcTemplate,
+            @Qualifier("controlledSqlReadClient") ObjectProvider<ControlledSqlReadClient> readClient) {
         this.jdbcTemplate = jdbcTemplate;
+        this.readClient = readClient;
     }
 
     public SqlValidation validate(String sql) {
@@ -117,39 +128,70 @@ public class ControlledSqlService {
 
     public SqlExecution execute(String sql) {
         SqlValidation validation = validate(sql);
+        // Reject before creating a run record when no SELECT-only execution identity is available.
+        readJdbc();
         String traceId = UUID.randomUUID().toString().replace("-", "");
         jdbcTemplate.update("INSERT INTO analytics_agent_trace(trace_id, question, status, started_at) VALUES (?, ?, 'RUNNING', NOW())",
                 traceId, "CONTROLLED_SQL_EXECUTION");
+        String executionPhase = "EXPLAIN";
         try {
-            long estimatedRows = estimatedRows(validation.normalizedSql());
+            long estimatedRows = estimatedRows(jdbcTemplate, validation.normalizedSql());
             if (estimatedRows > MAX_ESTIMATED_ROWS) {
                 throw new IllegalArgumentException("查询预估扫描行数超过 " + MAX_ESTIMATED_ROWS + "，请缩小范围");
             }
-            List<Map<String, Object>> rows = jdbcTemplate.queryForList(validation.normalizedSql());
+            executionPhase = "READ";
+            List<Map<String, Object>> rows = readJdbc().queryForList(validation.normalizedSql());
+            executionPhase = "AUDIT";
             jdbcTemplate.update("UPDATE analytics_agent_trace SET status='SUCCESS', completed_at=NOW() WHERE trace_id=?", traceId);
             saveStep(traceId, "CONTROLLED_SQL", "views=" + validation.views() + ", estimatedRows=" + estimatedRows + ", returnedRows=" + rows.size());
             return new SqlExecution(traceId, validation.normalizedSql(), validation.views(), estimatedRows, rows);
         } catch (RuntimeException exception) {
             jdbcTemplate.update("UPDATE analytics_agent_trace SET status='FAILED', completed_at=NOW() WHERE trace_id=?", traceId);
-            saveStep(traceId, "CONTROLLED_SQL_FAILED", "受控 SQL 执行失败");
-            throw exception;
+            saveStep(traceId, "CONTROLLED_SQL_FAILED", "phase=" + executionPhase);
+            throw new ControlledSqlExecutionException(executionPhase, exception);
         }
     }
 
     public SqlExecution executeAgentFallback(String sql, String region, LocalDate startDate, LocalDate endDate) {
         SqlValidation validation = validateAgentFallback(sql, region, startDate, endDate);
-        long estimatedRows = estimatedRows(validation.normalizedSql());
+        long estimatedRows = estimatedRows(jdbcTemplate, validation.normalizedSql());
         if (estimatedRows > MAX_ESTIMATED_ROWS) {
             throw new IllegalArgumentException("查询预估扫描行数超过 " + MAX_ESTIMATED_ROWS + "，请缩小范围");
         }
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(validation.normalizedSql());
+        List<Map<String, Object>> rows = readJdbc().queryForList(validation.normalizedSql());
         return new SqlExecution(null, validation.normalizedSql(), validation.views(), estimatedRows, rows);
     }
 
-    private long estimatedRows(String sql) {
-        return jdbcTemplate.queryForList("EXPLAIN " + sql).stream()
+    /**
+     * EXPLAIN has no data-reading side effect after AST validation. It runs on the primary
+     * application connection because MySQL otherwise requires the reader to have SELECT on every
+     * base table behind a view; actual result rows still always use the dedicated reader identity.
+     */
+    static long estimatedRows(JdbcTemplate explainJdbcTemplate, String sql) {
+        return explainJdbcTemplate.queryForList("EXPLAIN " + sql).stream()
                 .mapToLong(row -> ((Number) row.getOrDefault("rows", 0)).longValue())
                 .sum();
+    }
+
+    private JdbcTemplate readJdbc() {
+        ControlledSqlReadClient client = readClient == null ? null : readClient.getIfAvailable();
+        JdbcTemplate template = client == null ? null : client.jdbcTemplate();
+        if (template == null) throw new IllegalStateException("受控 SQL 执行需要启用独立只读数据源");
+        return template;
+    }
+
+    /** Safe diagnostics only: never returns connection URLs, usernames, credentials, or driver errors. */
+    public ReadOnlyDatasourceStatus readOnlyDatasourceStatus() {
+        ControlledSqlReadClient client = readClient == null ? null : readClient.getIfAvailable();
+        JdbcTemplate template = client == null ? null : client.jdbcTemplate();
+        if (template == null) return new ReadOnlyDatasourceStatus("NOT_CONFIGURED");
+        try {
+            Integer value = template.queryForObject("SELECT 1", Integer.class);
+            return Integer.valueOf(1).equals(value) ? new ReadOnlyDatasourceStatus("READY")
+                    : new ReadOnlyDatasourceStatus("UNAVAILABLE");
+        } catch (RuntimeException exception) {
+            return new ReadOnlyDatasourceStatus("UNAVAILABLE");
+        }
     }
 
     private void saveStep(String traceId, String type, String summary) {
@@ -160,4 +202,19 @@ public class ControlledSqlService {
     public record SqlValidation(String normalizedSql, List<String> views, int maxRows) { }
     public record SqlExecution(String traceId, String normalizedSql, List<String> views, long estimatedRows,
                                List<Map<String, Object>> rows) { }
+    public record ReadOnlyDatasourceStatus(String state) { }
+
+    /** Publicly safe failure category; the database exception remains server-side only. */
+    public static final class ControlledSqlExecutionException extends RuntimeException {
+        private final String phase;
+
+        ControlledSqlExecutionException(String phase, RuntimeException cause) {
+            super("controlled SQL execution failed", cause);
+            this.phase = phase;
+        }
+
+        public String phase() {
+            return phase;
+        }
+    }
 }

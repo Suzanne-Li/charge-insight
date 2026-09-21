@@ -1,5 +1,6 @@
 package com.chargeinsight.common.api;
 
+import com.chargeinsight.agent.sql.ControlledSqlService;
 import com.chargeinsight.security.LocalAuthService;
 import com.chargeinsight.security.RegionAccessPolicy;
 import jakarta.servlet.http.HttpServletRequest;
@@ -32,6 +33,18 @@ public class ApiExceptionHandler {
     @ExceptionHandler(LocalAuthService.InvalidCredentialsException.class)
     public ResponseEntity<Map<String, Object>> invalidCredentials(HttpServletRequest request) {
         return response("UNAUTHORIZED", "用户名或密码错误", request, HttpStatus.UNAUTHORIZED);
+    }
+
+    @ExceptionHandler(ControlledSqlService.ControlledSqlExecutionException.class)
+    public ResponseEntity<Map<String, Object>> controlledSqlFailure(
+            ControlledSqlService.ControlledSqlExecutionException exception, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "status", "CONTROLLED_SQL_EXECUTION_FAILED",
+                "message", "受控 SQL 执行未完成，请根据 phase 检查只读权限或缩小查询范围",
+                "phase", exception.phase(),
+                "path", request.getRequestURI(),
+                "httpStatus", HttpStatus.SERVICE_UNAVAILABLE.value(),
+                "timestamp", Instant.now().toString()));
     }
 
     @ExceptionHandler(RuntimeException.class)

@@ -1,0 +1,3 @@
+{
+  "sql": "SELECT region_name, SUM(gmv_amount) AS gmv FROM v_daily_group_operation WHERE region_name = '华东' GROUP BY region_name"
+}

@@ -26,6 +26,9 @@ spring:
         options:
           model: ${CHARGE_AI_MODEL:qwen-plus}
           temperature: 0.1
+      embedding:
+        options:
+          model: ${CHARGE_EMBEDDING_MODEL:text-embedding-v4}
     mcp:
       server:
         enabled: ${CHARGE_MCP_ENABLED:false}
@@ -44,6 +47,26 @@ charge:
     redis-enabled: ${CHARGE_REDIS_ENABLED:false}
     history-limit: ${CHARGE_MEMORY_HISTORY_LIMIT:12}
     ttl-hours: ${CHARGE_MEMORY_TTL_HOURS:24}
+    # Earlier messages are compacted only after this count; MySQL remains the full audit source.
+    summary-trigger-message-count: ${CHARGE_MEMORY_SUMMARY_TRIGGER_MESSAGE_COUNT:12}
+    context-window-message-limit: ${CHARGE_MEMORY_CONTEXT_WINDOW_MESSAGE_LIMIT:8}
+  vector:
+    # Disabled by default: no embedding request or external vector-store call occurs until explicitly enabled.
+    enabled: ${CHARGE_VECTOR_ENABLED:false}
+    qdrant:
+      base-url: ${CHARGE_QDRANT_BASE_URL:http://localhost:6333}
+      collection: ${CHARGE_QDRANT_COLLECTION:chargeinsight_knowledge_v1}
+      memory-collection: ${CHARGE_QDRANT_MEMORY_COLLECTION:chargeinsight_memory_v1}
+      top-k: ${CHARGE_VECTOR_TOP_K:10}
+      embedding-batch-size: ${CHARGE_EMBEDDING_BATCH_SIZE:10}
+  sql:
+    reader:
+      # Dynamic SQL stays disabled until an independently granted SELECT-only identity is configured.
+      enabled: ${CHARGE_SQL_READER_ENABLED:false}
+      url: ${CHARGE_SQL_READER_URL:}
+      username: ${CHARGE_SQL_READER_USERNAME:}
+      password: ${CHARGE_SQL_READER_PASSWORD:}
+      query-timeout-seconds: ${CHARGE_SQL_READER_QUERY_TIMEOUT_SECONDS:5}
   security:
     # Keep existing local demo calls working until a JWT secret and initial admin password are configured.
     enabled: ${CHARGE_SECURITY_ENABLED:false}
