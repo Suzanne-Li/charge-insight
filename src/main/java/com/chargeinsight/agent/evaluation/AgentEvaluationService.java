@@ -136,9 +136,10 @@ public class AgentEvaluationService {
             }
         } else {
             Set<String> actualFields = result.dataset().fields().stream()
-                    .map(field -> field.key()).collect(java.util.stream.Collectors.toSet());
+                    .map(field -> normalizeDatasetField(field.key()))
+                    .collect(java.util.stream.Collectors.toSet());
             for (String requiredField : evaluationCase.requiredDatasetFields()) {
-                if (!actualFields.contains(requiredField)) {
+                if (!actualFields.contains(normalizeDatasetField(requiredField))) {
                     mismatches.add("Dataset 缺少必需字段：" + requiredField);
                 }
             }
@@ -151,6 +152,13 @@ public class AgentEvaluationService {
 
     private String normalize(String value) {
         return MetricNameNormalizer.normalize(value);
+    }
+
+    /** SQL aliases are presentation labels; retain semantic field contracts across aliases such as GMV and 单日GMV（元）. */
+    private String normalizeDatasetField(String value) {
+        String normalized = value == null ? "" : value.toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[\\s_()（）]", "");
+        return normalized.contains("gmv") ? "gmv" : normalized;
     }
 
     private List<EvaluationCase> loadCases(ObjectMapper objectMapper) {

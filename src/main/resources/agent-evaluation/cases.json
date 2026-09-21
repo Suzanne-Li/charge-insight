@@ -143,6 +143,94 @@
     "expectedSqlFallback": true
   },
   {
+    "id": "operation-overview-east-short-form",
+    "question": "华东最近一周运营总览：可用桩、充电量和 GMV。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "METRIC",
+    "requiredMetrics": ["available_pile_count", "energy_kwh", "gmv_amount"],
+    "requiredTools": ["queryOperationOverview"],
+    "requiredDatasetFields": ["snapshotDate", "availablePileCount", "energyKwh", "gmvAmount"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "trend-gmv-short-form",
+    "question": "华东上海私桩共享桩群1近7天 GMV 趋势。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "TREND",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["queryOperationTrend"],
+    "requiredDatasetFields": ["statDate", "metricValue"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "fault-analysis-shanghai-group-1-short-form",
+    "question": "华东上海私桩共享桩群1近7天通信故障明细。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "FAULT_ANALYSIS",
+    "requiredMetrics": [],
+    "requiredTools": ["queryFaultBreakdown"],
+    "requiredDatasetFields": ["faultType", "faultDurationMinutes"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "ranking-offline-rate-east-short-form",
+    "question": "华东近7天离线率最高的五个桩群。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": ["offline_rate"],
+    "requiredTools": ["rankGroups"],
+    "requiredDatasetFields": ["groupName", "offlineRate"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "ranking-low-gmv-east-short-form",
+    "question": "华东近7天 GMV 最低桩群排行。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["rankGroups"],
+    "requiredDatasetFields": ["groupName", "gmvAmount"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "fault-ranking-communication-east-short-form",
+    "question": "华东近7天通信故障最多的五个桩群。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "RANKING",
+    "requiredMetrics": [],
+    "requiredTools": ["rankFaultGroups"],
+    "requiredDatasetFields": ["groupName", "faultPileDays", "faultDurationMinutes"],
+    "minimumRows": 1,
+    "expectedSqlFallback": false
+  },
+  {
+    "id": "daily-energy-by-city-controlled-sql-short-form",
+    "question": "按城市统计华东 2026-08-20 至 2026-08-26 每日充电量。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "AD_HOC_QUERY",
+    "requiredMetrics": ["energy_kwh"],
+    "requiredTools": ["controlledTextToSql"],
+    "requiredDatasetFields": ["stat_date", "city_name"],
+    "minimumRows": 1,
+    "expectedSqlFallback": true
+  },
+  {
+    "id": "daily-gmv-threshold-controlled-sql-short-form",
+    "question": "列出华东 2026-08-20 至 2026-08-26 单日 GMV 超过 200 元的桩群。",
+    "expectedStatus": "SUCCESS",
+    "expectedIntent": "AD_HOC_QUERY",
+    "requiredMetrics": ["gmv_amount"],
+    "requiredTools": ["controlledTextToSql"],
+    "requiredDatasetFields": ["stat_date", "group_name", "GMV"],
+    "minimumRows": 1,
+    "expectedSqlFallback": true
+  },
+  {
     "id": "region-scope-denied-south-for-east-analyst",
     "question": "查询华南区域最近一周的可用桩数、充电量和 GMV 是多少？",
     "expectedStatus": "DENIED",

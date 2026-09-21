@@ -1,0 +1,42 @@
+[
+  {
+    "id": "attribution-shanghai-group-1-communication-fault",
+    "question": "为什么华东上海私桩共享桩群1最近一周GMV较低？",
+    "expectedIntent": "ANOMALY_ROOT_CAUSE",
+    "requiredTools": ["compareAnomalyEvidence", "queryOperationTrend", "rankGroups"],
+    "current": {"gmvAmount": 894.80, "orderCount": 36, "availablePileCount": 5, "offlineRate": 0.3000},
+    "previous": {"gmvAmount": 1587.20, "orderCount": 65, "availablePileCount": 10, "offlineRate": 0.0286},
+    "expectedFaultCode": "COMMUNICATION_TIMEOUT",
+    "expectedFaultDurationMinutes": 3120
+  },
+  {
+    "id": "attribution-shanghai-group-3-device-fault",
+    "question": "为什么华东上海私桩共享桩群3最近一周GMV较低？",
+    "expectedIntent": "ANOMALY_ROOT_CAUSE",
+    "requiredTools": ["compareAnomalyEvidence", "queryOperationTrend", "rankGroups"],
+    "current": {"gmvAmount": 1587.20, "orderCount": 65, "availablePileCount": 10, "offlineRate": 0.0286},
+    "previous": {"gmvAmount": 1636.80, "orderCount": 67, "availablePileCount": 9, "offlineRate": 0.0571},
+    "expectedFaultCode": "DEVICE_SELF_CHECK",
+    "expectedFaultDurationMinutes": 480
+  },
+  {
+    "id": "attribution-hangzhou-group-1-device-fault",
+    "question": "为什么华东杭州私桩共享桩群1最近一周GMV较低？",
+    "expectedIntent": "ANOMALY_ROOT_CAUSE",
+    "requiredTools": ["compareAnomalyEvidence", "queryOperationTrend", "rankGroups"],
+    "current": {"gmvAmount": 1537.60, "orderCount": 64, "availablePileCount": 8, "offlineRate": 0.0714},
+    "previous": {"gmvAmount": 1711.20, "orderCount": 70, "availablePileCount": 10, "offlineRate": 0.0286},
+    "expectedFaultCode": "DEVICE_SELF_CHECK",
+    "expectedFaultDurationMinutes": 480
+  },
+  {
+    "id": "attribution-hangzhou-group-3-no-fault-evidence",
+    "question": "为什么华东杭州私桩共享桩群3最近一周GMV较低？",
+    "expectedIntent": "ANOMALY_ROOT_CAUSE",
+    "requiredTools": ["compareAnomalyEvidence", "queryOperationTrend", "rankGroups"],
+    "current": {"gmvAmount": 1661.60, "orderCount": 67, "availablePileCount": 9, "offlineRate": 0.0286},
+    "previous": {"gmvAmount": 1736.00, "orderCount": 71, "availablePileCount": 9, "offlineRate": 0.0429},
+    "expectedFaultCode": null,
+    "expectedFaultDurationMinutes": null
+  }
+]

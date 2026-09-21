@@ -26,7 +26,7 @@ class AgentEvaluationServiceTest {
 
     @Test
     void loadsVersionedCasesWithStableContracts() {
-        assertThat(evaluationService.cases()).hasSize(15).allSatisfy(evaluationCase -> {
+        assertThat(evaluationService.cases()).hasSize(23).allSatisfy(evaluationCase -> {
             assertThat(evaluationCase.id()).isNotBlank();
             assertThat(evaluationCase.question()).isNotBlank();
             assertThat(evaluationCase.expectedIntent()).isNotBlank();
@@ -61,18 +61,36 @@ class AgentEvaluationServiceTest {
 
         AgentEvaluationService.EvaluationReport report = service.run();
 
-        assertThat(report.total()).isEqualTo(15);
+        assertThat(report.total()).isEqualTo(23);
         assertThat(report.cases()).allSatisfy(caseResult ->
                 assertThat(caseResult.passed()).as(caseResult.caseId() + ": " + caseResult.mismatches()).isTrue());
-        assertThat(report.passed()).isEqualTo(15);
+        assertThat(report.passed()).isEqualTo(23);
         assertThat(report.failed()).isZero();
-        assertThat(sessions.createdSessionIds).hasSize(15);
+        assertThat(sessions.createdSessionIds).hasSize(23);
         assertThat(sessions.deletedSessionIds).containsExactlyElementsOf(sessions.createdSessionIds);
         assertThat(runtime.evaluationSubject).isEqualTo("evaluation-east-analyst");
         assertThat(runtime.evaluationScopes).containsExactly("华东");
         assertThat(runtime.deniedCases).isEqualTo(2);
         assertThat(SecurityContextHolder.getContext()).isSameAs(originalContext);
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isSameAs(originalAuthentication);
+    }
+
+    @Test
+    void treatsPresentationAliasForGmvAsTheSameDatasetMetric() {
+        AgentEvaluationService.EvaluationCase evaluationCase = evaluationService.cases().stream()
+                .filter(value -> value.id().equals("daily-gmv-threshold-controlled-sql-short-form")).findFirst().orElseThrow();
+        AnalyticsDataset dataset = new AnalyticsDataset("动态查询", List.of(
+                new AnalyticsDataset.Field("stat_date", "日期", "DATE", ""),
+                new AnalyticsDataset.Field("group_name", "桩群", "TEXT", ""),
+                new AnalyticsDataset.Field("单日GMV（元）", "单日GMV（元）", "NUMBER", "元")),
+                List.of(Map.of("stat_date", "2026-08-20", "group_name", "桩群1", "单日GMV（元）", 272.8)));
+        AnalysisPlan plan = new AnalysisPlan(AnalysisPlan.Intent.AD_HOC_QUERY, List.of("gmv_amount"),
+                new AnalysisPlan.Scope("华东", "", "", "2026-08-20 至 2026-08-26"), List.of(), List.of());
+        AnalyticsToolRouter.ToolExecution execution = new AnalyticsToolRouter.ToolExecution(List.of("controlledTextToSql"), Map.of(), List.of());
+        AnalyticsAgentRuntime.AnalysisResult result = new AnalyticsAgentRuntime.AnalysisResult("SUCCESS", "trace", "session", "answer",
+                dataset, plan, execution, List.of(), List.of(), List.of(), Instant.now(), Instant.now());
+
+        assertThat(evaluationService.assess(evaluationCase, result, 1).passed()).isTrue();
     }
 
     private static JwtAuthenticationToken authentication(String username, List<String> regionScopes) {
@@ -123,7 +141,7 @@ class AgentEvaluationServiceTest {
                     : question.contains("通信故障") ? AnalysisPlan.Intent.FAULT_ANALYSIS
                     : question.contains("趋势") ? AnalysisPlan.Intent.TREND
                     : question.contains("离线率最高") || question.contains("GMV 最低") ? AnalysisPlan.Intent.RANKING
-                    : question.contains("超过 200") || question.contains("按城市") ? AnalysisPlan.Intent.AD_HOC_QUERY : AnalysisPlan.Intent.METRIC;
+                    : question.contains("超过") || question.contains("按城市") ? AnalysisPlan.Intent.AD_HOC_QUERY : AnalysisPlan.Intent.METRIC;
             List<String> metrics = intent == AnalysisPlan.Intent.FAULT_ANALYSIS ? List.of()
                     : intent == AnalysisPlan.Intent.RANKING && question.contains("离线率") ? List.of("offline_rate")
                     : question.contains("按城市") ? List.of("energy_kwh")
