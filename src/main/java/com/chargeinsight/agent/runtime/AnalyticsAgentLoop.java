@@ -12,9 +12,10 @@ public class AnalyticsAgentLoop {
     private final List<AnalyticsAgentNode> nodes;
 
     @Autowired
-    public AnalyticsAgentLoop(PlanningAgentNode planning, QueryExecutionAgentNode execution,
-                              ResultCheckAgentNode check, OperationsAnswerAgentNode answer) {
-        this.nodes = List.of(planning, execution, check, answer);
+    public AnalyticsAgentLoop(PlanningAgentNode planning, NextActionAgentNode nextAction,
+                              QueryExecutionAgentNode execution, ResultCheckAgentNode check,
+                              ResultDecisionAgentNode resultDecision, OperationsAnswerAgentNode answer) {
+        this.nodes = List.of(planning, nextAction, execution, check, resultDecision, answer);
     }
 
     AnalyticsAgentLoop(List<AnalyticsAgentNode> nodes) {

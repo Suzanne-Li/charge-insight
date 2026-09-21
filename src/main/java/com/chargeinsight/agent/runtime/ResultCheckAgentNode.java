@@ -9,7 +9,8 @@ public class ResultCheckAgentNode implements AnalyticsAgentNode {
     public ResultCheckAgentNode(AnalyticsResultChecker checker) { this.checker = checker; }
     @Override public String name() { return "RESULT_CHECK_AGENT"; }
     @Override public boolean supports(AnalyticsAgentContext context) {
-        return context.execution() != null && context.checkResult() == null;
+        return context.execution() != null && context.executionComplete()
+                && context.observation() != null && context.checkResult() == null;
     }
 
     @Override

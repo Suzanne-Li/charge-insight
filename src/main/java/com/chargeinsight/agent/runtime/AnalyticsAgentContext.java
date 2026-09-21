@@ -14,10 +14,15 @@ public final class AnalyticsAgentContext {
     private final Consumer<AnalyticsToolRouter.ToolAudit> toolAuditConsumer;
     private final List<AgentLoopStep> steps = new ArrayList<>();
     private AnalyticsPlanningService.PlanningOutcome planning;
+    private AgentDecision nextAction;
     private AnalyticsToolRouter.ToolExecution execution;
+    private AgentObservation observation;
     private AnalyticsDataset dataset;
     private AnalyticsResultChecker.CheckResult checkResult;
+    private AgentDecision completionAction;
     private String answer;
+    private boolean executionComplete;
+    private boolean rootCauseObservationHandled;
     private boolean finished;
 
     public AnalyticsAgentContext(String traceId, String question, Instant startedAt,
@@ -36,14 +41,24 @@ public final class AnalyticsAgentContext {
     public void addStep(AgentLoopStep step) { steps.add(step); }
     public AnalyticsPlanningService.PlanningOutcome planning() { return planning; }
     public void planning(AnalyticsPlanningService.PlanningOutcome planning) { this.planning = planning; }
+    public AgentDecision nextAction() { return nextAction; }
+    public void nextAction(AgentDecision nextAction) { this.nextAction = nextAction; }
     public AnalyticsToolRouter.ToolExecution execution() { return execution; }
     public void execution(AnalyticsToolRouter.ToolExecution execution) { this.execution = execution; }
+    public AgentObservation observation() { return observation; }
+    public void observation(AgentObservation observation) { this.observation = observation; }
     public AnalyticsDataset dataset() { return dataset; }
     public void dataset(AnalyticsDataset dataset) { this.dataset = dataset; }
     public AnalyticsResultChecker.CheckResult checkResult() { return checkResult; }
     public void checkResult(AnalyticsResultChecker.CheckResult checkResult) { this.checkResult = checkResult; }
+    public AgentDecision completionAction() { return completionAction; }
+    public void completionAction(AgentDecision completionAction) { this.completionAction = completionAction; }
     public String answer() { return answer; }
     public void answer(String answer) { this.answer = answer; }
+    public boolean executionComplete() { return executionComplete; }
+    public void markExecutionComplete() { this.executionComplete = true; }
+    public boolean rootCauseObservationHandled() { return rootCauseObservationHandled; }
+    public void markRootCauseObservationHandled() { this.rootCauseObservationHandled = true; }
     public boolean finished() { return finished; }
     public void finish() { this.finished = true; }
 

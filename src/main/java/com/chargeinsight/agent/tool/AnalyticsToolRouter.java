@@ -1,6 +1,7 @@
 package com.chargeinsight.agent.tool;
 
 import com.chargeinsight.agent.planning.AnalysisPlan;
+import com.chargeinsight.agent.runtime.AgentDecision;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -105,11 +106,67 @@ public class AnalyticsToolRouter {
         return new ToolExecution(toolAudits.stream().map(ToolAudit::toolName).distinct().toList(), evidence, toolAudits);
     }
 
+    /**
+     * Executes one root-cause evidence tool. The runtime calls this method between
+     * observations, so a follow-up is selected from observed data rather than eagerly
+     * running every available tool.
+     */
+    public ToolExecution executeAnomalyStep(AnalysisPlan plan, AgentDecision decision,
+                                            Map<String, Object> previousEvidence,
+                                            java.util.function.Consumer<ToolAudit> auditConsumer) {
+        if (plan.intent() != AnalysisPlan.Intent.ANOMALY_ROOT_CAUSE) {
+            throw new IllegalArgumentException("仅异常归因计划可按步骤执行");
+        }
+        if (decision.allowedTools().size() != 1) {
+            throw new IllegalArgumentException("异常归因步骤必须只允许一个工具");
+        }
+        String tool = decision.allowedTools().get(0);
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        List<ToolAudit> toolAudits = new ArrayList<>();
+        AnalysisPeriodResolver.ResolvedPeriod current = previousEvidence.get("resolvedPeriod") instanceof AnalysisPeriodResolver.ResolvedPeriod value
+                ? value : periodResolver.resolve(plan.scope().timeRange());
+        String groupName = resolveGroup(plan, evidence, previousEvidence);
+        switch (tool) {
+            case "compareAnomalyEvidence" -> {
+                AnalysisPeriodResolver.ResolvedPeriod previous = periodResolver.previousPeriod(current);
+                evidence.put("periodComparison", invoke(toolAudits, auditConsumer, tool,
+                        Map.ofEntries(
+                                Map.entry("region", plan.scope().region()), Map.entry("group", groupName),
+                                Map.entry("currentStartDate", current.startDate()), Map.entry("currentEndDate", current.endDate()),
+                                Map.entry("previousStartDate", previous.startDate()), Map.entry("previousEndDate", previous.endDate())),
+                        () -> queryTools.compareAnomalyEvidence(plan.scope().region(), groupName,
+                                current.startDate(), current.endDate(), previous.startDate(), previous.endDate())));
+            }
+            case "rankGroups" -> evidence.put("offlineGroupRanking", invoke(toolAudits, auditConsumer, tool,
+                    Map.of("region", plan.scope().region(), "metric", "OFFLINE_RATE", "startDate", current.startDate(), "endDate", current.endDate(), "limit", 5),
+                    () -> queryTools.rankGroups(plan.scope().region(),
+                            AnalyticsQueryTools.GroupRankingMetric.OFFLINE_RATE, current.startDate(), current.endDate(), 5)));
+            case "queryOperationTrend" -> {
+                AnalyticsQueryTools.TrendMetric metric = decision.expectedEvidence().contains("可用桩趋势")
+                        ? AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT : AnalyticsQueryTools.TrendMetric.GMV_AMOUNT;
+                String key = metric == AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT ? "availabilityTrend" : "gmvTrend";
+                evidence.put(key, trend(toolAudits, auditConsumer, plan.scope().region(), groupName, metric, current));
+            }
+            default -> throw new IllegalArgumentException("异常归因步骤不支持工具：" + tool);
+        }
+        evidence.put("resolvedPeriod", current);
+        return new ToolExecution(toolAudits.stream().map(ToolAudit::toolName).distinct().toList(), evidence, toolAudits);
+    }
+
     private String resolveGroup(AnalysisPlan plan, Map<String, Object> evidence) {
         GroupEntityResolver.ResolvedGroup resolvedGroup = groupEntityResolver.resolve(
                 plan.scope().region(), plan.scope().city(), plan.scope().group());
         evidence.put("entityResolution", resolvedGroup);
         return resolvedGroup.matchedGroup().groupName();
+    }
+
+    private String resolveGroup(AnalysisPlan plan, Map<String, Object> evidence, Map<String, Object> previousEvidence) {
+        Object previous = previousEvidence.get("entityResolution");
+        if (previous instanceof GroupEntityResolver.ResolvedGroup resolved) {
+            evidence.put("entityResolution", resolved);
+            return resolved.matchedGroup().groupName();
+        }
+        return resolveGroup(plan, evidence);
     }
 
     private AnalyticsQueryTools.GroupRankingMetric rankingMetric(List<String> metrics) {

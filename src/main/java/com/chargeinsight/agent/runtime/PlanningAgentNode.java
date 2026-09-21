@@ -16,6 +16,7 @@ public class PlanningAgentNode implements AnalyticsAgentNode {
         context.planning(outcome);
         if (!"SUCCESS".equals(outcome.status())) context.finish();
         return new NodeResult("CREATE_QUERY_PLAN", "status=" + outcome.status()
-                + ", knowledgeSources=" + outcome.knowledgeSources().size());
+                + ", knowledgeSources=" + outcome.knowledgeSources().size() + ", "
+                + outcome.retrievalAudit().summary());
     }
 }

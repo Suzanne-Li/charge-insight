@@ -26,6 +26,17 @@ class AnalysisPlanPolicyTest {
         assertThat(normalized.intent()).isEqualTo(AnalysisPlan.Intent.AD_HOC_QUERY);
     }
 
+    @Test
+    void routesNamedGroupCommunicationFaultQuestionToDomainFaultTool() {
+        AnalysisPlan plan = new AnalysisPlan(AnalysisPlan.Intent.AD_HOC_QUERY, List.of("fault_pile_count"),
+                new AnalysisPlan.Scope("华东", "上海", "私桩共享桩群1", "最近一周"),
+                List.of("执行查询"), List.of("查询结果"));
+
+        AnalysisPlan normalized = policy.normalize("华东上海私桩共享桩群1近7天通信故障明细", plan);
+
+        assertThat(normalized.intent()).isEqualTo(AnalysisPlan.Intent.FAULT_ANALYSIS);
+    }
+
     private AnalysisPlan plan(AnalysisPlan.Intent intent, List<String> metrics) {
         return new AnalysisPlan(intent, metrics,
                 new AnalysisPlan.Scope("华东", "", "", "最近一周"), List.of("执行查询"), List.of("查询结果"));

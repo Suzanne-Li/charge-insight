@@ -37,7 +37,8 @@ public class AnalyticsAgentRuntime {
         try {
             var outcome = planningService.plan(question);
             saveStep(traceId, 1, "PLANNING_AGENT", "status=" + outcome.status()
-                    + ", knowledgeSources=" + outcome.knowledgeSources().size());
+                    + ", knowledgeSources=" + outcome.knowledgeSources().size() + ", "
+                    + outcome.retrievalAudit().summary());
             jdbcTemplate.update("UPDATE analytics_agent_trace SET retrieved_context=?, analysis_plan=?, status=?, completed_at=NOW() WHERE trace_id=?",
                     outcome.retrievedContext(), outcome.rawPlan(), outcome.status(), traceId);
             return "SUCCESS".equals(outcome.status())

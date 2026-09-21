@@ -39,5 +39,17 @@ public class AgentChatSchemaInitializer {
                         REFERENCES analytics_chat_session(session_id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='问数会话消息'
                 """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS analytics_session_summary (
+                    session_id VARCHAR(32) PRIMARY KEY,
+                    covered_through_message_id BIGINT NOT NULL,
+                    source_hash CHAR(64) NOT NULL,
+                    summary_json TEXT NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                    CONSTRAINT fk_session_summary_session FOREIGN KEY (session_id)
+                        REFERENCES analytics_chat_session(session_id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='问数会话结构化摘要'
+                """);
     }
 }

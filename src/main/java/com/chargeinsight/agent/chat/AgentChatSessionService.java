@@ -1,6 +1,7 @@
 package com.chargeinsight.agent.chat;
 
 import com.chargeinsight.agent.planning.AnalysisPlan;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
@@ -9,6 +10,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,10 +19,27 @@ import org.springframework.transaction.annotation.Transactional;
 public class AgentChatSessionService {
     private final JdbcTemplate jdbcTemplate;
     private final AgentShortTermMemoryService shortTermMemory;
+    private final AgentLongTermMemoryService longTermMemory;
+    private final ObjectMapper objectMapper;
+    private final int summaryTriggerMessageCount;
+    private final int contextWindowMessageLimit;
+    private final SessionSummaryCompactor summaryCompactor = new SessionSummaryCompactor();
 
     public AgentChatSessionService(JdbcTemplate jdbcTemplate, AgentShortTermMemoryService shortTermMemory) {
+        this(jdbcTemplate, shortTermMemory, null, null, 12, 8);
+    }
+
+    @Autowired
+    public AgentChatSessionService(JdbcTemplate jdbcTemplate, AgentShortTermMemoryService shortTermMemory,
+            AgentLongTermMemoryService longTermMemory, ObjectMapper objectMapper,
+            @Value("${charge.memory.summary-trigger-message-count:12}") int summaryTriggerMessageCount,
+            @Value("${charge.memory.context-window-message-limit:8}") int contextWindowMessageLimit) {
         this.jdbcTemplate = jdbcTemplate;
         this.shortTermMemory = shortTermMemory;
+        this.longTermMemory = longTermMemory;
+        this.objectMapper = objectMapper;
+        this.summaryTriggerMessageCount = Math.max(3, summaryTriggerMessageCount);
+        this.contextWindowMessageLimit = Math.max(2, contextWindowMessageLimit);
     }
 
     @Transactional
@@ -60,6 +80,7 @@ public class AgentChatSessionService {
                 sessionId, role, content, traceId);
         jdbcTemplate.update("UPDATE analytics_chat_session SET updated_at=NOW() WHERE session_id=?", sessionId);
         shortTermMemory.append(sessionId, role, content);
+        compactIfNeeded(sessionId);
     }
 
     /** Restores prior context before the current message can make an empty cache look populated. */
@@ -89,17 +110,24 @@ public class AgentChatSessionService {
 
     public String contextualize(String sessionId, String question) {
         SessionSummary session = requireOwned(sessionId);
-        if (!needsContext(question) || session.region() == null) return question;
-        StringBuilder context = new StringBuilder(question).append("\n\n会话中已确认的查询范围：区域=").append(session.region());
-        if (session.city() != null) context.append("，城市=").append(session.city());
-        if (session.group() != null) context.append("，桩群=").append(session.group());
-        if (session.timeRange() != null) context.append("，上一轮时间范围=").append(session.timeRange());
-        context.append("。只继承用户本轮未重新指定的范围。");
-        List<AgentShortTermMemoryService.MemoryMessage> recent = recentWithMysqlFallback(sessionId);
-        if (!recent.isEmpty()) {
-            context.append("\n最近会话摘要：");
-            recent.stream().skip(Math.max(0, recent.size() - 4)).forEach(message -> context.append("\n")
-                    .append(message.role()).append("：").append(abbreviate(message.content())));
+        StringBuilder context = new StringBuilder(question);
+        if (needsContext(question) && session.region() != null) {
+            context.append("\n\n会话中已确认的查询范围：区域=").append(session.region());
+            if (session.city() != null) context.append("，城市=").append(session.city());
+            if (session.group() != null) context.append("，桩群=").append(session.group());
+            if (session.timeRange() != null) context.append("，上一轮时间范围=").append(session.timeRange());
+            context.append("。只继承用户本轮未重新指定的范围。");
+            List<AgentShortTermMemoryService.MemoryMessage> recent = recentWithMysqlFallback(sessionId);
+            if (!recent.isEmpty()) {
+                context.append("\n最近会话摘要：");
+                recent.stream().skip(Math.max(0, recent.size() - contextWindowMessageLimit)).forEach(message -> context.append("\n")
+                        .append(message.role()).append("：").append(abbreviate(message.content())));
+            }
+            appendStructuredSummary(context, sessionId);
+        }
+        if (longTermMemory != null) {
+            String memoryContext = longTermMemory.recallContext(question);
+            if (!memoryContext.isBlank()) context.append("\n\n").append(memoryContext);
         }
         return context.toString();
     }
@@ -111,6 +139,45 @@ public class AgentChatSessionService {
                 .map(message -> new AgentShortTermMemoryService.MemoryMessage(message.role(), message.content())).toList();
         shortTermMemory.refresh(sessionId, persisted);
         return persisted;
+    }
+
+    private void compactIfNeeded(String sessionId) {
+        if (objectMapper == null) return;
+        List<Message> persisted = messages(sessionId);
+        if (!summaryCompactor.shouldCompact(persisted.size(), summaryTriggerMessageCount)) return;
+        List<Message> compacted = summaryCompactor.messagesToCompact(persisted, contextWindowMessageLimit);
+        if (compacted.isEmpty()) return;
+        SessionSummaryCompactor.StructuredSummary summary = summaryCompactor.compact(compacted, requireOwned(sessionId));
+        List<String> existing = jdbcTemplate.query("SELECT source_hash FROM analytics_session_summary WHERE session_id=?",
+                (row, ignored) -> row.getString(1), sessionId);
+        if (!existing.isEmpty() && summary.sourceHash().equals(existing.get(0))) return;
+        try {
+            jdbcTemplate.update("""
+                    INSERT INTO analytics_session_summary(session_id, covered_through_message_id, source_hash, summary_json)
+                    VALUES (?, ?, ?, ?)
+                    ON DUPLICATE KEY UPDATE covered_through_message_id=VALUES(covered_through_message_id),
+                        source_hash=VALUES(source_hash), summary_json=VALUES(summary_json)
+                    """, sessionId, summary.coveredThroughMessageId(), summary.sourceHash(),
+                    objectMapper.writeValueAsString(summary));
+        } catch (Exception exception) {
+            throw new IllegalStateException("会话结构化摘要保存失败", exception);
+        }
+    }
+
+    private void appendStructuredSummary(StringBuilder context, String sessionId) {
+        if (objectMapper == null) return;
+        List<String> summaries = jdbcTemplate.query("SELECT summary_json FROM analytics_session_summary WHERE session_id=?",
+                (row, ignored) -> row.getString(1), sessionId);
+        if (summaries.isEmpty()) return;
+        try {
+            SessionSummaryCompactor.StructuredSummary summary = objectMapper.readValue(summaries.get(0),
+                    SessionSummaryCompactor.StructuredSummary.class);
+            context.append("\n早期结构化会话摘要：范围=").append(summary.confirmedScope());
+            if (!summary.userRequests().isEmpty()) context.append("；历史问题=").append(summary.userRequests());
+            if (!summary.verifiedConclusions().isEmpty()) context.append("；历史结论=").append(summary.verifiedConclusions());
+        } catch (Exception ignored) {
+            // A malformed derived summary must never prevent MySQL-backed chat from continuing.
+        }
     }
 
     private String abbreviate(String value) {

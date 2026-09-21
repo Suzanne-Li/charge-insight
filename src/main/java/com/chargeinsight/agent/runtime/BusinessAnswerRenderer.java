@@ -24,7 +24,7 @@ final class BusinessAnswerRenderer {
         Object faults = execution.evidence().get("faultBreakdown");
         if (faults instanceof List<?> values) return faults(values);
         Object comparison = execution.evidence().get("periodComparison");
-        if (comparison instanceof AnalyticsQueryTools.AnomalyEvidence value) return anomaly(value);
+        if (comparison instanceof AnalyticsQueryTools.AnomalyEvidence value) return anomaly(value, execution);
         return "本次未获得可展示的运营数据，请调整问题范围后重试。";
     }
 
@@ -100,7 +100,7 @@ final class BusinessAnswerRenderer {
         return answer.toString();
     }
 
-    private static String anomaly(AnalyticsQueryTools.AnomalyEvidence value) {
+    private static String anomaly(AnalyticsQueryTools.AnomalyEvidence value, AnalyticsToolRouter.ToolExecution execution) {
         var current = value.currentPeriod(); var previous = value.previousPeriod();
         BigDecimal gmvChange = current.gmvAmount().subtract(previous.gmvAmount());
         BigDecimal gmvRate = percentChange(current.gmvAmount(), previous.gmvAmount());
@@ -121,7 +121,34 @@ final class BusinessAnswerRenderer {
         } else {
             answer.append("本期未查询到可用于解释变化的故障汇总，建议继续检查价格、活动、用户需求和调度策略。");
         }
+        appendSupplementalEvidence(answer, execution);
         return answer.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void appendSupplementalEvidence(StringBuilder answer, AnalyticsToolRouter.ToolExecution execution) {
+        Object ranking = execution.evidence().get("offlineGroupRanking");
+        if (ranking instanceof List<?> values && !values.isEmpty() && values.get(0) instanceof AnalyticsQueryTools.GroupRanking) {
+            List<AnalyticsQueryTools.GroupRanking> rows = (List<AnalyticsQueryTools.GroupRanking>) values;
+            String groups = rows.stream().limit(3).map(AnalyticsQueryTools.GroupRanking::groupName)
+                    .reduce((left, right) -> left + "、" + right).orElse("");
+            answer.append("\n补充核验：本期离线率较高的桩群包括 ").append(groups)
+                    .append("。该排行用于确定优先排查对象，与 GMV 变化仅是同期相关线索，不构成直接因果证明。");
+            return;
+        }
+        Object availability = execution.evidence().get("availabilityTrend");
+        if (availability instanceof List<?> values && !values.isEmpty() && values.get(0) instanceof AnalyticsQueryTools.TrendPoint) {
+            List<AnalyticsQueryTools.TrendPoint> points = (List<AnalyticsQueryTools.TrendPoint>) values;
+            answer.append("\n补充核验：已获得 ").append(points.size()).append(" 个日度可用桩观测点，用于确认供给变化的发生时段；"
+                    + "该时间序列是排查线索，不构成直接因果证明。");
+            return;
+        }
+        Object gmvTrend = execution.evidence().get("gmvTrend");
+        if (gmvTrend instanceof List<?> values && !values.isEmpty() && values.get(0) instanceof AnalyticsQueryTools.TrendPoint) {
+            List<AnalyticsQueryTools.TrendPoint> points = (List<AnalyticsQueryTools.TrendPoint>) values;
+            answer.append("\n补充核验：已获得 ").append(points.size()).append(" 个日度 GMV 观测点，用于区分持续变化与单日波动；"
+                    + "该时间序列是排查线索，不构成直接因果证明。");
+        }
     }
 
     private static BigDecimal divide(BigDecimal numerator, BigDecimal denominator) {
