@@ -37,15 +37,16 @@ public class AnalyticsToolRouter {
         switch (plan.intent()) {
             case METRIC -> {
                 evidence.put("operationOverview", invoke(toolAudits, auditConsumer, "queryOperationOverview",
-                        Map.of("region", plan.scope().region(), "startDate", current.startDate(), "endDate", current.endDate()),
-                        () -> queryTools.queryOperationOverview(plan.scope().region(), current.startDate(), current.endDate())));
+                        scopeParameters(plan, current),
+                        () -> queryTools.queryOperationOverview(plan.scope().region(), plan.scope().city(), current.startDate(), current.endDate())));
             }
             case TREND -> {
                 String groupName = resolveGroup(plan, evidence);
-                evidence.put("gmvTrend", invoke(toolAudits, auditConsumer, "queryOperationTrend",
-                        Map.of("region", plan.scope().region(), "group", groupName, "metric", "GMV_AMOUNT", "startDate", current.startDate(), "endDate", current.endDate()),
-                        () -> queryTools.queryOperationTrend(plan.scope().region(), groupName,
-                                AnalyticsQueryTools.TrendMetric.GMV_AMOUNT, current.startDate(), current.endDate())));
+                AnalyticsQueryTools.TrendMetric metric = trendMetric(plan.metrics());
+                evidence.put("trend", invoke(toolAudits, auditConsumer, "queryOperationTrend",
+                        groupScopeParameters(plan, groupName, metric.name(), current),
+                        () -> queryTools.queryOperationTrend(plan.scope().region(), plan.scope().city(), groupName,
+                                metric, current.startDate(), current.endDate())));
             }
             case FAULT_ANALYSIS -> {
                 if (plan.scope().group() == null || plan.scope().group().isBlank()) {
@@ -53,17 +54,18 @@ public class AnalyticsToolRouter {
                     Map<String, Object> parameters = new LinkedHashMap<>();
                     parameters.put("region", plan.scope().region());
                     parameters.put("faultCode", faultCode == null ? "全部故障" : faultCode);
+                    addCity(parameters, plan.scope().city());
                     parameters.put("startDate", current.startDate());
                     parameters.put("endDate", current.endDate());
                     parameters.put("limit", 5);
                     evidence.put("faultGroupRanking", invoke(toolAudits, auditConsumer, "rankFaultGroups", parameters,
-                            () -> queryTools.rankFaultGroups(plan.scope().region(), faultCode,
+                            () -> queryTools.rankFaultGroups(plan.scope().region(), plan.scope().city(), faultCode,
                                     current.startDate(), current.endDate(), 5)));
                 } else {
                     String groupName = resolveGroup(plan, evidence);
                     evidence.put("faultBreakdown", invoke(toolAudits, auditConsumer, "queryFaultBreakdown",
-                            Map.of("region", plan.scope().region(), "group", groupName, "startDate", current.startDate(), "endDate", current.endDate(), "limit", 10),
-                            () -> queryTools.queryFaultBreakdown(plan.scope().region(), groupName,
+                            groupScopeParameters(plan, groupName, null, current, 10),
+                            () -> queryTools.queryFaultBreakdown(plan.scope().region(), plan.scope().city(), groupName,
                                     current.startDate(), current.endDate(), 10)));
                 }
             }
@@ -73,31 +75,31 @@ public class AnalyticsToolRouter {
                 evidence.put("periodComparison", invoke(toolAudits, auditConsumer, "compareAnomalyEvidence",
                         Map.ofEntries(
                                 Map.entry("region", plan.scope().region()), Map.entry("group", groupName),
+                                Map.entry("city", cityOrEmpty(plan.scope().city())),
                                 Map.entry("currentStartDate", current.startDate()), Map.entry("currentEndDate", current.endDate()),
                                 Map.entry("previousStartDate", previous.startDate()), Map.entry("previousEndDate", previous.endDate())),
-                        () -> queryTools.compareAnomalyEvidence(plan.scope().region(), groupName,
+                        () -> queryTools.compareAnomalyEvidence(plan.scope().region(), plan.scope().city(), groupName,
                                 current.startDate(), current.endDate(), previous.startDate(), previous.endDate())));
-                evidence.put("gmvTrend", trend(toolAudits, auditConsumer, plan.scope().region(), groupName, AnalyticsQueryTools.TrendMetric.GMV_AMOUNT, current));
-                evidence.put("availabilityTrend", trend(toolAudits, auditConsumer, plan.scope().region(), groupName, AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT, current));
-                evidence.put("offlineRateTrend", trend(toolAudits, auditConsumer, plan.scope().region(), groupName, AnalyticsQueryTools.TrendMetric.OFFLINE_RATE, current));
+                evidence.put("gmvTrend", trend(toolAudits, auditConsumer, plan.scope().region(), plan.scope().city(), groupName, AnalyticsQueryTools.TrendMetric.GMV_AMOUNT, current));
+                evidence.put("availabilityTrend", trend(toolAudits, auditConsumer, plan.scope().region(), plan.scope().city(), groupName, AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT, current));
+                evidence.put("offlineRateTrend", trend(toolAudits, auditConsumer, plan.scope().region(), plan.scope().city(), groupName, AnalyticsQueryTools.TrendMetric.OFFLINE_RATE, current));
                 evidence.put("offlineGroupRanking", invoke(toolAudits, auditConsumer, "rankGroups",
-                        Map.of("region", plan.scope().region(), "metric", "OFFLINE_RATE", "startDate", current.startDate(), "endDate", current.endDate(), "limit", 5),
-                        () -> queryTools.rankGroups(plan.scope().region(),
+                        rankingParameters(plan, "OFFLINE_RATE", current),
+                        () -> queryTools.rankGroups(plan.scope().region(), plan.scope().city(),
                                 AnalyticsQueryTools.GroupRankingMetric.OFFLINE_RATE, current.startDate(), current.endDate(), 5)));
             }
             case RANKING -> {
                 if (plan.metrics().contains("communication_timeout")) {
                     evidence.put("faultGroupRanking", invoke(toolAudits, auditConsumer, "rankFaultGroups",
-                            Map.of("region", plan.scope().region(), "faultCode", "COMMUNICATION_TIMEOUT",
-                                    "startDate", current.startDate(), "endDate", current.endDate(), "limit", 5),
-                            () -> queryTools.rankFaultGroups(plan.scope().region(), "COMMUNICATION_TIMEOUT",
+                            faultRankingParameters(plan, "COMMUNICATION_TIMEOUT", current),
+                            () -> queryTools.rankFaultGroups(plan.scope().region(), plan.scope().city(), "COMMUNICATION_TIMEOUT",
                                     current.startDate(), current.endDate(), 5)));
                     break;
                 }
                 AnalyticsQueryTools.GroupRankingMetric metric = rankingMetric(plan.metrics());
                 evidence.put("groupRanking", invoke(toolAudits, auditConsumer, "rankGroups",
-                        Map.of("region", plan.scope().region(), "metric", metric.name(), "startDate", current.startDate(), "endDate", current.endDate(), "limit", 5),
-                        () -> queryTools.rankGroups(plan.scope().region(), metric, current.startDate(), current.endDate(), 5)));
+                        rankingParameters(plan, metric.name(), current),
+                        () -> queryTools.rankGroups(plan.scope().region(), plan.scope().city(), metric, current.startDate(), current.endDate(), 5)));
             }
             case AD_HOC_QUERY -> throw new IllegalArgumentException("临时查询必须由受限 Text-to-SQL 节点执行");
             default -> throw new IllegalArgumentException("不支持的分析意图：" + plan.intent());
@@ -132,20 +134,21 @@ public class AnalyticsToolRouter {
                 evidence.put("periodComparison", invoke(toolAudits, auditConsumer, tool,
                         Map.ofEntries(
                                 Map.entry("region", plan.scope().region()), Map.entry("group", groupName),
+                                Map.entry("city", cityOrEmpty(plan.scope().city())),
                                 Map.entry("currentStartDate", current.startDate()), Map.entry("currentEndDate", current.endDate()),
                                 Map.entry("previousStartDate", previous.startDate()), Map.entry("previousEndDate", previous.endDate())),
-                        () -> queryTools.compareAnomalyEvidence(plan.scope().region(), groupName,
+                        () -> queryTools.compareAnomalyEvidence(plan.scope().region(), plan.scope().city(), groupName,
                                 current.startDate(), current.endDate(), previous.startDate(), previous.endDate())));
             }
             case "rankGroups" -> evidence.put("offlineGroupRanking", invoke(toolAudits, auditConsumer, tool,
-                    Map.of("region", plan.scope().region(), "metric", "OFFLINE_RATE", "startDate", current.startDate(), "endDate", current.endDate(), "limit", 5),
-                    () -> queryTools.rankGroups(plan.scope().region(),
+                    rankingParameters(plan, "OFFLINE_RATE", current),
+                    () -> queryTools.rankGroups(plan.scope().region(), plan.scope().city(),
                             AnalyticsQueryTools.GroupRankingMetric.OFFLINE_RATE, current.startDate(), current.endDate(), 5)));
             case "queryOperationTrend" -> {
                 AnalyticsQueryTools.TrendMetric metric = decision.expectedEvidence().contains("可用桩趋势")
                         ? AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT : AnalyticsQueryTools.TrendMetric.GMV_AMOUNT;
                 String key = metric == AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT ? "availabilityTrend" : "gmvTrend";
-                evidence.put(key, trend(toolAudits, auditConsumer, plan.scope().region(), groupName, metric, current));
+                evidence.put(key, trend(toolAudits, auditConsumer, plan.scope().region(), plan.scope().city(), groupName, metric, current));
             }
             default -> throw new IllegalArgumentException("异常归因步骤不支持工具：" + tool);
         }
@@ -184,12 +187,70 @@ public class AnalyticsToolRouter {
                 || metric.equals("通信故障")) ? "COMMUNICATION_TIMEOUT" : null;
     }
 
-    private List<AnalyticsQueryTools.TrendPoint> trend(List<ToolAudit> toolAudits, java.util.function.Consumer<ToolAudit> auditConsumer, String region, String group,
+    private List<AnalyticsQueryTools.TrendPoint> trend(List<ToolAudit> toolAudits, java.util.function.Consumer<ToolAudit> auditConsumer, String region, String city, String group,
             AnalyticsQueryTools.TrendMetric metric, AnalysisPeriodResolver.ResolvedPeriod period) {
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("region", region);
+        addCity(parameters, city);
+        parameters.put("group", group);
+        parameters.put("metric", metric.name());
+        parameters.put("startDate", period.startDate());
+        parameters.put("endDate", period.endDate());
         return invoke(toolAudits, auditConsumer, "queryOperationTrend",
-                Map.of("region", region, "group", group, "metric", metric.name(), "startDate", period.startDate(), "endDate", period.endDate()),
-                () -> queryTools.queryOperationTrend(region, group, metric, period.startDate(), period.endDate()));
+                parameters,
+                () -> queryTools.queryOperationTrend(region, city, group, metric, period.startDate(), period.endDate()));
     }
+
+    private AnalyticsQueryTools.TrendMetric trendMetric(List<String> metrics) {
+        if (metrics.contains("energy_kwh")) return AnalyticsQueryTools.TrendMetric.ENERGY_KWH;
+        if (metrics.contains("order_count") || metrics.contains("success_order_count")) return AnalyticsQueryTools.TrendMetric.ORDER_COUNT;
+        if (metrics.contains("available_pile_count") || metrics.contains("available_piles")) return AnalyticsQueryTools.TrendMetric.AVAILABLE_PILE_COUNT;
+        if (metrics.contains("offline_rate") || metrics.contains("offline_pile_count")) return AnalyticsQueryTools.TrendMetric.OFFLINE_RATE;
+        return AnalyticsQueryTools.TrendMetric.GMV_AMOUNT;
+    }
+
+    private Map<String, Object> scopeParameters(AnalysisPlan plan, AnalysisPeriodResolver.ResolvedPeriod period) {
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("region", plan.scope().region());
+        addCity(parameters, plan.scope().city());
+        parameters.put("startDate", period.startDate());
+        parameters.put("endDate", period.endDate());
+        return parameters;
+    }
+
+    private Map<String, Object> groupScopeParameters(AnalysisPlan plan, String group, String metric,
+                                                      AnalysisPeriodResolver.ResolvedPeriod period) {
+        return groupScopeParameters(plan, group, metric, period, null);
+    }
+
+    private Map<String, Object> groupScopeParameters(AnalysisPlan plan, String group, String metric,
+                                                      AnalysisPeriodResolver.ResolvedPeriod period, Integer limit) {
+        Map<String, Object> parameters = scopeParameters(plan, period);
+        parameters.put("group", group);
+        if (metric != null) parameters.put("metric", metric);
+        if (limit != null) parameters.put("limit", limit);
+        return parameters;
+    }
+
+    private Map<String, Object> rankingParameters(AnalysisPlan plan, String metric, AnalysisPeriodResolver.ResolvedPeriod period) {
+        Map<String, Object> parameters = scopeParameters(plan, period);
+        parameters.put("metric", metric);
+        parameters.put("limit", 5);
+        return parameters;
+    }
+
+    private Map<String, Object> faultRankingParameters(AnalysisPlan plan, String faultCode, AnalysisPeriodResolver.ResolvedPeriod period) {
+        Map<String, Object> parameters = scopeParameters(plan, period);
+        parameters.put("faultCode", faultCode);
+        parameters.put("limit", 5);
+        return parameters;
+    }
+
+    private void addCity(Map<String, Object> parameters, String city) {
+        if (city != null && !city.isBlank()) parameters.put("city", city.trim());
+    }
+
+    private String cityOrEmpty(String city) { return city == null ? "" : city.trim(); }
 
     private <T> T invoke(List<ToolAudit> toolAudits, java.util.function.Consumer<ToolAudit> auditConsumer, String toolName, Map<String, Object> parameters, Supplier<T> action) {
         long startedAt = System.nanoTime();

@@ -55,6 +55,22 @@ class AnalyticsDatasetTest {
         });
     }
 
+    @Test
+    void labelsNonGmvTrendUsingItsActualMetric() {
+        var plan = new AnalysisPlan(AnalysisPlan.Intent.TREND, List.of("energy_kwh"),
+                new AnalysisPlan.Scope("华东", "上海", "私桩共享桩群1", "最近一周"), List.of(), List.of());
+        var points = List.of(new AnalyticsQueryTools.TrendPoint(LocalDate.of(2026, 8, 26),
+                AnalyticsQueryTools.TrendMetric.ENERGY_KWH, new BigDecimal("128.50")));
+        var execution = new AnalyticsToolRouter.ToolExecution(List.of("queryOperationTrend"),
+                Map.of("trend", points), List.of());
+
+        AnalyticsDataset dataset = AnalyticsDataset.from(plan, execution);
+
+        assertThat(dataset.title()).isEqualTo("充电量 趋势");
+        assertThat(dataset.fields().get(1)).extracting(AnalyticsDataset.Field::label, AnalyticsDataset.Field::unit)
+                .containsExactly("充电量", "kWh");
+    }
+
     private AnalyticsQueryTools.OperationOverview overview(BigDecimal gmvAmount) {
         return new AnalyticsQueryTools.OperationOverview("华东", "私桩共享桩群1",
                 LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 26), LocalDate.of(2026, 8, 26),

@@ -23,6 +23,8 @@ final class BusinessAnswerRenderer {
         if (faultRanking instanceof List<?> values) return faultRanking(values, plan);
         Object faults = execution.evidence().get("faultBreakdown");
         if (faults instanceof List<?> values) return faults(values);
+        Object trend = execution.evidence().get("trend");
+        if (trend instanceof List<?> values) return trend(values);
         Object comparison = execution.evidence().get("periodComparison");
         if (comparison instanceof AnalyticsQueryTools.AnomalyEvidence value) return anomaly(value, execution);
         return "本次未获得可展示的运营数据，请调整问题范围后重试。";
@@ -43,8 +45,9 @@ final class BusinessAnswerRenderer {
         BigDecimal price = divide(value.gmvAmount(), value.energyKwh());
         long days = java.time.temporal.ChronoUnit.DAYS.between(value.startDate(), value.endDate()) + 1;
         BigDecimal dailyEnergy = divide(value.energyKwh(), BigDecimal.valueOf(days));
-        return "%s区域 %s 至 %s 的运营数据如下：\n\n"
-                .formatted(value.region(), value.startDate(), value.endDate())
+        String scope = value.city() == null || value.city().isBlank() ? value.region() + "区域" : value.region() + value.city();
+        return "%s %s 至 %s 的运营数据如下：\n\n"
+                .formatted(scope, value.startDate(), value.endDate())
                 + "• 可用桩：%s 个（%s 快照）\n• 累计充电量：%s kWh\n• 累计 GMV：%s 元\n"
                 .formatted(value.availablePileCount(), value.snapshotDate(), value.energyKwh(), value.gmvAmount())
                 + "• 累计订单量：%s 单，共享成功率：%s\n\n"
@@ -82,6 +85,45 @@ final class BusinessAnswerRenderer {
                     .append(row.faultPileDays()).append("，累计故障时长 ").append(row.faultDurationMinutes()).append(" 分钟\n");
         }
         return answer.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String trend(List<?> values) {
+        List<AnalyticsQueryTools.TrendPoint> points = (List<AnalyticsQueryTools.TrendPoint>) values;
+        if (points.isEmpty()) return "该时间范围内没有可用于趋势分析的数据。";
+        AnalyticsQueryTools.TrendMetric metric = points.get(0).metric();
+        String label = trendLabel(metric);
+        String unit = trendUnit(metric);
+        AnalyticsQueryTools.TrendPoint first = points.get(0);
+        AnalyticsQueryTools.TrendPoint last = points.get(points.size() - 1);
+        String direction = last.value().compareTo(first.value()) > 0 ? "上升" : last.value().compareTo(first.value()) < 0 ? "下降" : "持平";
+        return "%s趋势：共 %s 个日度观测点，%s 为 %s，%s 为 %s，整体%s。"
+                .formatted(label, points.size(), first.statDate(), trendValue(metric, first.value(), unit),
+                        last.statDate(), trendValue(metric, last.value(), unit), direction);
+    }
+
+    private static String trendLabel(AnalyticsQueryTools.TrendMetric metric) {
+        return switch (metric) {
+            case GMV_AMOUNT -> "GMV";
+            case ENERGY_KWH -> "充电量";
+            case ORDER_COUNT -> "订单量";
+            case AVAILABLE_PILE_COUNT -> "可用桩";
+            case OFFLINE_RATE -> "离线率";
+        };
+    }
+
+    private static String trendUnit(AnalyticsQueryTools.TrendMetric metric) {
+        return switch (metric) {
+            case GMV_AMOUNT -> "元";
+            case ENERGY_KWH -> "kWh";
+            case ORDER_COUNT -> "单";
+            case AVAILABLE_PILE_COUNT -> "个";
+            case OFFLINE_RATE -> "";
+        };
+    }
+
+    private static String trendValue(AnalyticsQueryTools.TrendMetric metric, BigDecimal value, String unit) {
+        return metric == AnalyticsQueryTools.TrendMetric.OFFLINE_RATE ? percent(value) : value + unit;
     }
 
     private static String faultRanking(List<?> values, AnalysisPlan plan) {

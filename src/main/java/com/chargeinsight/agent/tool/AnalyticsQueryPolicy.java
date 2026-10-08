@@ -30,6 +30,11 @@ public class AnalyticsQueryPolicy {
         return value.trim();
     }
 
+    /** Normalizes an optional query dimension before it is used as a JDBC parameter. */
+    public String optionalScope(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
     public int limit(Integer requestedLimit) {
         if (requestedLimit == null) {
             return 10;

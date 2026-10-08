@@ -26,7 +26,9 @@ public record AnalyticsDataset(String title, List<Field> fields, List<Map<String
         // comparison contract before considering supporting trend evidence.
         Object comparison = execution.evidence().get("periodComparison");
         if (comparison instanceof AnalyticsQueryTools.AnomalyEvidence value) return comparison(value);
-        Object trend = execution.evidence().get("gmvTrend");
+        Object trend = execution.evidence().get("trend");
+        if (trend instanceof List<?> values) return trend(values);
+        trend = execution.evidence().get("gmvTrend");
         if (trend instanceof List<?> values) return trend(values);
         return new AnalyticsDataset("分析结果", List.of(), List.of());
     }
@@ -62,7 +64,9 @@ public record AnalyticsDataset(String title, List<Field> fields, List<Map<String
         row.put("gmvAmount", value.gmvAmount());
         row.put("orderCount", value.orderCount());
         row.put("shareSuccessRate", value.shareSuccessRate());
-        return new AnalyticsDataset(value.region() + "区域运营总览", fields, List.of(Map.copyOf(row)));
+        String scope = value.city() == null || value.city().isBlank()
+                ? value.region() + "区域" : value.region() + value.city();
+        return new AnalyticsDataset(scope + "运营总览", fields, List.of(Map.copyOf(row)));
     }
 
     @SuppressWarnings("unchecked")
@@ -133,15 +137,36 @@ public record AnalyticsDataset(String title, List<Field> fields, List<Map<String
     @SuppressWarnings("unchecked")
     private static AnalyticsDataset trend(List<?> values) {
         List<AnalyticsQueryTools.TrendPoint> points = (List<AnalyticsQueryTools.TrendPoint>) values;
+        AnalyticsQueryTools.TrendMetric metric = points.isEmpty() ? AnalyticsQueryTools.TrendMetric.GMV_AMOUNT : points.get(0).metric();
         List<Field> fields = List.of(new Field("statDate", "日期", "DATE", ""),
-                new Field("metricValue", "GMV", "NUMBER", "元"));
+                new Field("metricValue", trendLabel(metric), "NUMBER", trendUnit(metric)));
         List<Map<String, Object>> rows = points.stream().map(point -> {
             Map<String, Object> row = new LinkedHashMap<>();
             row.put("statDate", point.statDate());
             row.put("metricValue", point.value());
             return Map.copyOf(row);
         }).toList();
-        return new AnalyticsDataset("GMV 趋势", fields, rows);
+        return new AnalyticsDataset(trendLabel(metric) + " 趋势", fields, rows);
+    }
+
+    private static String trendLabel(AnalyticsQueryTools.TrendMetric metric) {
+        return switch (metric) {
+            case GMV_AMOUNT -> "GMV";
+            case ENERGY_KWH -> "充电量";
+            case ORDER_COUNT -> "订单量";
+            case AVAILABLE_PILE_COUNT -> "可用桩";
+            case OFFLINE_RATE -> "离线率";
+        };
+    }
+
+    private static String trendUnit(AnalyticsQueryTools.TrendMetric metric) {
+        return switch (metric) {
+            case GMV_AMOUNT -> "元";
+            case ENERGY_KWH -> "kWh";
+            case ORDER_COUNT -> "单";
+            case AVAILABLE_PILE_COUNT -> "个";
+            case OFFLINE_RATE -> "%";
+        };
     }
 
     private static Map<String, Object> comparisonRow(String period, AnalyticsQueryTools.OperationOverview value) {
