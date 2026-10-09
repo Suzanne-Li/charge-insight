@@ -49,6 +49,22 @@ class ControlledSqlServiceTest {
     }
 
     @Test
+    void explicitAndAutomaticPathsShareTheSameScopedSqlPolicy() {
+        String sql = """
+                SELECT city_name, SUM(gmv_amount) AS GMV
+                FROM v_daily_group_operation
+                WHERE region_name = '华东' AND stat_date BETWEEN '2026-08-20' AND '2026-08-26'
+                GROUP BY city_name
+                """;
+
+        var explicit = sqlService.validateScoped(sql, "华东", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 26));
+        var automatic = sqlService.validateAgentFallback(sql, "华东", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 26));
+
+        assertThat(explicit.normalizedSql()).isEqualTo(automatic.normalizedSql());
+        assertThat(explicit.views()).containsExactly("v_daily_group_operation");
+    }
+
+    @Test
     void rejectsFallbackThatCouldBroadenServerScope() {
         assertThatIllegalArgumentException().isThrownBy(() -> sqlService.validateAgentFallback("""
                 SELECT city_name, SUM(gmv_amount)
@@ -64,9 +80,38 @@ class ControlledSqlServiceTest {
                 GROUP BY city_name
                 """, "华东", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 26)));
     }
+
+    @Test
+    void rejectsExplicitSqlWhenScopeIsMissingBroadenedOrStructurallyComplex() {
+        LocalDate start = LocalDate.of(2026, 8, 20);
+        LocalDate end = LocalDate.of(2026, 8, 26);
+        assertThatIllegalArgumentException().isThrownBy(() -> sqlService.validateScoped("""
+                SELECT city_name FROM v_daily_group_operation
+                WHERE region_name = '华南' AND stat_date BETWEEN '2026-08-20' AND '2026-08-26'
+                """, "华东", start, end));
+        assertThatIllegalArgumentException().isThrownBy(() -> sqlService.validateScoped("""
+                SELECT operation.city_name FROM v_daily_group_operation operation
+                JOIN v_daily_fault_analysis fault ON 1 = 1
+                WHERE operation.region_name = '华东' AND operation.stat_date BETWEEN '2026-08-20' AND '2026-08-26'
+                """, "华东", start, end));
+        assertThatIllegalArgumentException().isThrownBy(() -> sqlService.validateScoped("""
+                SELECT city_name FROM v_daily_group_operation
+                WHERE region_name = '华东' AND stat_date BETWEEN '2026-08-20' AND '2026-08-27'
+                """, "华东", start, end));
+    }
+
+    @Test
+    void rejectsMissingOrOversizedExplicitDateScope() {
+        String sql = "SELECT city_name FROM v_daily_group_operation WHERE region_name = '华东' AND stat_date BETWEEN '2026-08-01' AND '2026-09-01'";
+        assertThatIllegalArgumentException().isThrownBy(() -> sqlService.validateScoped(sql, "", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 8, 31)));
+        assertThatIllegalArgumentException().isThrownBy(() -> sqlService.validateScoped(sql, "华东", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 1)));
+    }
     @Test
     void refusesExecutionWhenNoDedicatedReadOnlyDatasourceExists() {
-        assertThatIllegalStateException().isThrownBy(() -> sqlService.execute("SELECT * FROM v_daily_group_operation"))
+        assertThatIllegalStateException().isThrownBy(() -> sqlService.executeScoped("""
+                SELECT * FROM v_daily_group_operation
+                WHERE region_name = '华东' AND stat_date BETWEEN '2026-08-20' AND '2026-08-26'
+                """, "华东", LocalDate.of(2026, 8, 20), LocalDate.of(2026, 8, 26)))
                 .withMessage("受控 SQL 执行需要启用独立只读数据源");
     }
 
