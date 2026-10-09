@@ -1,12 +1,14 @@
 package com.chargeinsight.mcp;
 
 import com.chargeinsight.agent.tool.AnalyticsQueryTools;
+import com.chargeinsight.agent.trace.AnalyticsTraceService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.UUID;
+import java.util.Map;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springaicommunity.mcp.annotation.McpToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -16,34 +18,44 @@ import org.springframework.stereotype.Service;
 @ConditionalOnProperty(name = "spring.ai.mcp.server.enabled", havingValue = "true")
 public class ReportExportMcpTool {
     private final AnalyticsQueryTools queryTools;
-    private final JdbcTemplate jdbcTemplate;
+    private final AnalyticsTraceService traceService;
 
     public ReportExportMcpTool(AnalyticsQueryTools queryTools, JdbcTemplate jdbcTemplate) {
+        this(queryTools, new AnalyticsTraceService(jdbcTemplate));
+    }
+
+    @Autowired
+    public ReportExportMcpTool(AnalyticsQueryTools queryTools, AnalyticsTraceService traceService) {
         this.queryTools = queryTools;
-        this.jdbcTemplate = jdbcTemplate;
+        this.traceService = traceService;
     }
 
     @McpTool(name = "export_operation_overview", description = "Export a region operation overview as bounded CSV. Requires the caller to have the requested region scope.")
     public CsvReport exportOperationOverview(
             @McpToolParam(required = true, description = "运营大区，例如华东") String region,
             @McpToolParam(required = true, description = "开始日期，YYYY-MM-DD") String startDate,
-            @McpToolParam(required = true, description = "结束日期，YYYY-MM-DD") String endDate) {
-        String traceId = UUID.randomUUID().toString().replace("-", "");
-        jdbcTemplate.update("INSERT INTO analytics_agent_trace(trace_id, question, status, started_at) VALUES (?, ?, 'RUNNING', NOW())",
-                traceId, "MCP_REPORT_EXPORT");
+            @McpToolParam(required = true, description = "结束日期，YYYY-MM-DD") String endDate,
+            @McpToolParam(required = false, description = "可选的 Agent 根 Trace ID；传入后将本次 MCP 调用关联为子 Trace") String correlationId) {
+        var trace = traceService.start("MCP_REPORT_EXPORT", correlationId);
+        long startedAt = System.nanoTime();
         try {
             AnalyticsQueryTools.OperationOverview overview = queryTools.queryOperationOverview(region, LocalDate.parse(startDate), LocalDate.parse(endDate));
             String csv = csv(overview);
-            jdbcTemplate.update("INSERT INTO analytics_agent_trace_step(trace_id, step_number, step_type, summary) VALUES (?, 1, 'MCP_REPORT_EXPORT', ?)",
-                    traceId, "report=operation_overview, region=" + overview.region() + ", rows=1");
-            jdbcTemplate.update("UPDATE analytics_agent_trace SET status='SUCCESS', completed_at=NOW() WHERE trace_id=?", traceId);
-            return new CsvReport(traceId, "operation-overview-" + overview.region() + "-" + overview.startDate() + "-" + overview.endDate() + ".csv",
+            traceService.recordTool(trace.traceId(), 1, "export_operation_overview",
+                    Map.of("region", region.trim(), "startDate", startDate, "endDate", endDate), elapsedMs(startedAt),
+                    "report=operation_overview, rows=1");
+            traceService.finish(trace.traceId(), "SUCCESS");
+            return new CsvReport(trace.traceId(), trace.correlationId(), "operation-overview-" + overview.region() + "-" + overview.startDate() + "-" + overview.endDate() + ".csv",
                     "text/csv; charset=utf-8", csv);
         } catch (RuntimeException exception) {
-            jdbcTemplate.update("INSERT INTO analytics_agent_trace_step(trace_id, step_number, step_type, summary) VALUES (?, 1, 'MCP_REPORT_EXPORT_FAILED', 'MCP 报表导出失败')", traceId);
-            jdbcTemplate.update("UPDATE analytics_agent_trace SET status='FAILED', completed_at=NOW() WHERE trace_id=?", traceId);
+            traceService.recordStep(trace.traceId(), 1, "MCP_REPORT_EXPORT_FAILED", "MCP 报表导出失败");
+            traceService.finish(trace.traceId(), "FAILED");
             throw exception;
         }
+    }
+
+    public CsvReport exportOperationOverview(String region, String startDate, String endDate) {
+        return exportOperationOverview(region, startDate, endDate, null);
     }
 
     private String csv(AnalyticsQueryTools.OperationOverview overview) {
@@ -57,5 +69,13 @@ public class ReportExportMcpTool {
 
     private String decimal(BigDecimal value) { return value.toPlainString(); }
 
-    public record CsvReport(String traceId, String fileName, String mediaType, String csv) { }
+    private long elapsedMs(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+
+    public record CsvReport(String traceId, String correlationId, String fileName, String mediaType, String csv) {
+        public CsvReport(String traceId, String fileName, String mediaType, String csv) {
+            this(traceId, null, fileName, mediaType, csv);
+        }
+    }
 }

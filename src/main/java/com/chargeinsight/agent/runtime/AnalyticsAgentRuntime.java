@@ -2,12 +2,14 @@ package com.chargeinsight.agent.runtime;
 
 import com.chargeinsight.agent.chat.AgentChatSessionService;
 import com.chargeinsight.agent.planning.AnalysisPlan;
+import com.chargeinsight.agent.trace.AnalyticsTraceService;
 import com.chargeinsight.agent.tool.AnalyticsToolRouter;
 import com.chargeinsight.agent.tool.GroupEntityResolver;
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -18,22 +20,33 @@ public class AnalyticsAgentRuntime {
     private final AnalyticsPlanningService planningService;
     private final AnalyticsAgentLoop agentLoop;
     private final AgentChatSessionService chatSessions;
+    private final AnalyticsTraceService traceService;
 
     public AnalyticsAgentRuntime(
             JdbcTemplate jdbcTemplate,
             AnalyticsPlanningService planningService,
             AnalyticsAgentLoop agentLoop,
             AgentChatSessionService chatSessions) {
+        this(jdbcTemplate, planningService, agentLoop, chatSessions, new AnalyticsTraceService(jdbcTemplate));
+    }
+
+    @Autowired
+    public AnalyticsAgentRuntime(
+            JdbcTemplate jdbcTemplate,
+            AnalyticsPlanningService planningService,
+            AnalyticsAgentLoop agentLoop,
+            AgentChatSessionService chatSessions,
+            AnalyticsTraceService traceService) {
         this.jdbcTemplate = jdbcTemplate;
         this.planningService = planningService;
         this.agentLoop = agentLoop;
         this.chatSessions = chatSessions;
+        this.traceService = traceService;
     }
 
     public AgentPlan plan(String question) {
-        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String traceId = traceService.start(question, null).traceId();
         Instant startedAt = Instant.now();
-        jdbcTemplate.update("INSERT INTO analytics_agent_trace(trace_id, question, status, started_at) VALUES (?, ?, 'RUNNING', NOW())", traceId, question);
         try {
             var outcome = planningService.plan(question);
             saveStep(traceId, 1, "PLANNING_AGENT", "status=" + outcome.status()
@@ -66,11 +79,15 @@ public class AnalyticsAgentRuntime {
         eventConsumer.accept(new StreamEvent("planning", "正在理解问题并生成查询计划"));
         var chatSession = chatSessions.ensureSession(requestedSessionId, question);
         String planningQuestion = chatSessions.prepareUserTurn(chatSession.sessionId(), question);
-        String traceId = UUID.randomUUID().toString().replace("-", "");
+        String traceId = traceService.start(question, null).traceId();
         Instant startedAt = Instant.now();
-        jdbcTemplate.update("INSERT INTO analytics_agent_trace(trace_id, question, status, started_at) VALUES (?, ?, 'RUNNING', NOW())", traceId, question);
+        AtomicInteger toolStepNumber = new AtomicInteger(100);
         AnalyticsAgentContext context = new AnalyticsAgentContext(traceId, planningQuestion, startedAt,
-                audit -> eventConsumer.accept(new StreamEvent("tool", audit)));
+                audit -> {
+                    traceService.recordTool(traceId, toolStepNumber.getAndIncrement(), audit.toolName(), audit.parameters(),
+                            audit.durationMs(), audit.resultSummary());
+                    eventConsumer.accept(new StreamEvent("tool", audit));
+                });
         try {
             agentLoop.run(context, step -> {
                 saveStep(traceId, step.number(), step.node(), step.action() + "; " + step.summary()
@@ -120,7 +137,7 @@ public class AnalyticsAgentRuntime {
     }
 
     private void saveStep(String traceId, int number, String type, String summary) {
-        jdbcTemplate.update("INSERT INTO analytics_agent_trace_step(trace_id, step_number, step_type, summary) VALUES (?, ?, ?, ?)", traceId, number, type, summary);
+        traceService.recordStep(traceId, number, type, summary);
     }
 
     public record AgentPlan(
