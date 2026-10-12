@@ -1,14 +1,17 @@
 package com.chargeinsight.mcp;
 
 import com.chargeinsight.agent.tool.GroupEntityResolver;
+import com.chargeinsight.agent.trace.AnalyticsTraceService;
 import com.chargeinsight.security.RegionAccessPolicy;
 import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springaicommunity.mcp.annotation.McpTool;
 import org.springaicommunity.mcp.annotation.McpToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -22,11 +25,19 @@ public class WorkOrderMcpTool {
     private final JdbcTemplate jdbcTemplate;
     private final GroupEntityResolver groupEntityResolver;
     private final RegionAccessPolicy regionAccessPolicy;
+    private final AnalyticsTraceService traceService;
 
     public WorkOrderMcpTool(JdbcTemplate jdbcTemplate, GroupEntityResolver groupEntityResolver, RegionAccessPolicy regionAccessPolicy) {
+        this(jdbcTemplate, groupEntityResolver, regionAccessPolicy, new AnalyticsTraceService(jdbcTemplate));
+    }
+
+    @Autowired
+    public WorkOrderMcpTool(JdbcTemplate jdbcTemplate, GroupEntityResolver groupEntityResolver,
+                            RegionAccessPolicy regionAccessPolicy, AnalyticsTraceService traceService) {
         this.jdbcTemplate = jdbcTemplate;
         this.groupEntityResolver = groupEntityResolver;
         this.regionAccessPolicy = regionAccessPolicy;
+        this.traceService = traceService;
     }
 
     @McpTool(name = "create_alert_work_order", description = "Create a local simulated work order for an analytics alert. The caller must have the requested region scope.")
@@ -35,53 +46,70 @@ public class WorkOrderMcpTool {
             @McpToolParam(required = true, description = "桩群名称") String groupName,
             @McpToolParam(required = true, description = "工单标题，最多160字符") String title,
             @McpToolParam(required = true, description = "优先级：P1、P2、P3、P4") String severity,
-            @McpToolParam(required = true, description = "告警或处置说明，最多2000字符") String description) {
+            @McpToolParam(required = true, description = "告警或处置说明，最多2000字符") String description,
+            @McpToolParam(required = false, description = "可选的 Agent 根 Trace ID；传入后将本次 MCP 调用关联为子 Trace") String correlationId) {
         validate(title, severity, description);
         regionAccessPolicy.assertAllowed(region);
-        String traceId = startTrace("MCP_WORK_ORDER_CREATE");
+        var trace = traceService.start("MCP_WORK_ORDER_CREATE", correlationId);
+        long startedAt = System.nanoTime();
         try {
             GroupEntityResolver.ResolvedGroup group = groupEntityResolver.resolve(region, "", groupName);
             String workOrderNo = "WO-" + Instant.now().toEpochMilli() + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
             jdbcTemplate.update("INSERT INTO analytics_mcp_work_order(work_order_no, region_name, group_id, group_name, title, description, severity, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'OPEN')",
                     workOrderNo, group.region(), group.matchedGroup().groupId(), group.matchedGroup().groupName(), title.trim(), description.trim(), severity.toUpperCase(Locale.ROOT));
-            saveTrace(traceId, "MCP_WORK_ORDER_CREATE", "workOrderNo=" + workOrderNo + ", severity=" + severity.toUpperCase(Locale.ROOT));
-            finishTrace(traceId, "SUCCESS");
-            return new WorkOrder(workOrderNo, group.region(), group.matchedGroup().groupName(), title.trim(), severity.toUpperCase(Locale.ROOT), "OPEN", traceId);
+            traceService.recordTool(trace.traceId(), 1, "create_alert_work_order",
+                    Map.of("region", region.trim(), "groupName", groupName.trim(), "severity", severity.toUpperCase(Locale.ROOT)),
+                    elapsedMs(startedAt), "workOrderNo=" + workOrderNo + ", status=OPEN");
+            traceService.finish(trace.traceId(), "SUCCESS");
+            return new WorkOrder(workOrderNo, group.region(), group.matchedGroup().groupName(), title.trim(), severity.toUpperCase(Locale.ROOT), "OPEN", trace.traceId(), trace.correlationId());
         } catch (RuntimeException exception) {
-            saveTrace(traceId, "MCP_WORK_ORDER_CREATE_FAILED", "MCP 本地工单创建失败");
-            finishTrace(traceId, "FAILED");
+            traceService.recordStep(trace.traceId(), 1, "MCP_WORK_ORDER_CREATE_FAILED", "MCP 本地工单创建失败");
+            traceService.finish(trace.traceId(), "FAILED");
             throw exception;
         }
+    }
+
+    /** Backward-compatible Java entry point for callers that do not yet propagate an Agent trace. */
+    public WorkOrder createAlertWorkOrder(String region, String groupName, String title, String severity, String description) {
+        return createAlertWorkOrder(region, groupName, title, severity, description, null);
     }
 
     @McpTool(name = "list_open_work_orders", description = "List up to 20 open local simulated work orders for a region.")
     public List<WorkOrder> listOpenWorkOrders(
             @McpToolParam(required = true, description = "运营大区，例如华东") String region,
-            @McpToolParam(required = true, description = "返回条数，1到20") Integer limit) {
+            @McpToolParam(required = true, description = "返回条数，1到20") Integer limit,
+            @McpToolParam(required = false, description = "可选的 Agent 根 Trace ID；传入后将本次 MCP 调用关联为子 Trace") String correlationId) {
         regionAccessPolicy.assertAllowed(region);
         if (limit == null || limit < 1 || limit > 20) throw new IllegalArgumentException("limit 必须在 1 到 20 之间");
-        String traceId = startTrace("MCP_WORK_ORDER_LIST");
+        var trace = traceService.start("MCP_WORK_ORDER_LIST", correlationId);
+        long startedAt = System.nanoTime();
         try {
             List<WorkOrder> workOrders = jdbcTemplate.query("SELECT work_order_no, region_name, group_name, title, severity, status FROM analytics_mcp_work_order WHERE region_name = ? AND status = 'OPEN' ORDER BY created_at DESC LIMIT ?",
                     (row, ignored) -> new WorkOrder(row.getString("work_order_no"), row.getString("region_name"), row.getString("group_name"),
                             row.getString("title"), row.getString("severity"), row.getString("status"), null), region, limit)
                     .stream()
-                    .map(order -> new WorkOrder(order.workOrderNo(), order.region(), order.groupName(), order.title(), order.severity(), order.status(), traceId))
+                    .map(order -> new WorkOrder(order.workOrderNo(), order.region(), order.groupName(), order.title(), order.severity(), order.status(), trace.traceId(), trace.correlationId()))
                     .toList();
-            saveTrace(traceId, "MCP_WORK_ORDER_LIST", "region=" + region.trim() + ", rows=" + workOrders.size());
-            finishTrace(traceId, "SUCCESS");
+            traceService.recordTool(trace.traceId(), 1, "list_open_work_orders", Map.of("region", region.trim(), "limit", limit),
+                    elapsedMs(startedAt), "rows=" + workOrders.size());
+            traceService.finish(trace.traceId(), "SUCCESS");
             return workOrders;
         } catch (RuntimeException exception) {
-            saveTrace(traceId, "MCP_WORK_ORDER_LIST_FAILED", "MCP 本地工单查询失败");
-            finishTrace(traceId, "FAILED");
+            traceService.recordStep(trace.traceId(), 1, "MCP_WORK_ORDER_LIST_FAILED", "MCP 本地工单查询失败");
+            traceService.finish(trace.traceId(), "FAILED");
             throw exception;
         }
+    }
+
+    public List<WorkOrder> listOpenWorkOrders(String region, Integer limit) {
+        return listOpenWorkOrders(region, limit, null);
     }
 
     @McpTool(name = "update_work_order_status", description = "Move a local simulated work order through the controlled lifecycle: OPEN to IN_PROGRESS or CLOSED, IN_PROGRESS to RESOLVED or CLOSED, and RESOLVED to CLOSED.")
     public WorkOrder updateWorkOrderStatus(
             @McpToolParam(required = true, description = "工单号") String workOrderNo,
-            @McpToolParam(required = true, description = "目标状态：IN_PROGRESS、RESOLVED 或 CLOSED") String targetStatus) {
+            @McpToolParam(required = true, description = "目标状态：IN_PROGRESS、RESOLVED 或 CLOSED") String targetStatus,
+            @McpToolParam(required = false, description = "可选的 Agent 根 Trace ID；传入后将本次 MCP 调用关联为子 Trace") String correlationId) {
         if (workOrderNo == null || workOrderNo.isBlank() || workOrderNo.length() > 64) {
             throw new IllegalArgumentException("workOrderNo 不能为空且最多64字符");
         }
@@ -89,7 +117,8 @@ public class WorkOrderMcpTool {
         if (!TARGET_STATUSES.contains(normalizedStatus)) {
             throw new IllegalArgumentException("targetStatus 必须为 IN_PROGRESS、RESOLVED 或 CLOSED");
         }
-        String traceId = startTrace("MCP_WORK_ORDER_STATUS_UPDATE");
+        var trace = traceService.start("MCP_WORK_ORDER_STATUS_UPDATE", correlationId);
+        long startedAt = System.nanoTime();
         try {
             WorkOrder existing = jdbcTemplate.queryForObject(
                     "SELECT work_order_no, region_name, group_name, title, severity, status FROM analytics_mcp_work_order WHERE work_order_no = ?",
@@ -101,14 +130,20 @@ public class WorkOrderMcpTool {
                 throw new IllegalArgumentException("不允许将 " + existing.status() + " 更新为 " + normalizedStatus);
             }
             jdbcTemplate.update("UPDATE analytics_mcp_work_order SET status = ? WHERE work_order_no = ?", normalizedStatus, existing.workOrderNo());
-            saveTrace(traceId, "MCP_WORK_ORDER_STATUS_UPDATE", "workOrderNo=" + existing.workOrderNo() + ", from=" + existing.status() + ", to=" + normalizedStatus);
-            finishTrace(traceId, "SUCCESS");
-            return new WorkOrder(existing.workOrderNo(), existing.region(), existing.groupName(), existing.title(), existing.severity(), normalizedStatus, traceId);
+            traceService.recordTool(trace.traceId(), 1, "update_work_order_status",
+                    Map.of("workOrderNo", existing.workOrderNo(), "targetStatus", normalizedStatus), elapsedMs(startedAt),
+                    "from=" + existing.status() + ", to=" + normalizedStatus);
+            traceService.finish(trace.traceId(), "SUCCESS");
+            return new WorkOrder(existing.workOrderNo(), existing.region(), existing.groupName(), existing.title(), existing.severity(), normalizedStatus, trace.traceId(), trace.correlationId());
         } catch (RuntimeException exception) {
-            saveTrace(traceId, "MCP_WORK_ORDER_STATUS_UPDATE_FAILED", "MCP 本地工单状态更新失败");
-            finishTrace(traceId, "FAILED");
+            traceService.recordStep(trace.traceId(), 1, "MCP_WORK_ORDER_STATUS_UPDATE_FAILED", "MCP 本地工单状态更新失败");
+            traceService.finish(trace.traceId(), "FAILED");
             throw exception;
         }
+    }
+
+    public WorkOrder updateWorkOrderStatus(String workOrderNo, String targetStatus) {
+        return updateWorkOrderStatus(workOrderNo, targetStatus, null);
     }
 
     private void validate(String title, String severity, String description) {
@@ -126,19 +161,14 @@ public class WorkOrderMcpTool {
         };
     }
 
-    private String startTrace(String question) {
-        String traceId = UUID.randomUUID().toString().replace("-", "");
-        jdbcTemplate.update("INSERT INTO analytics_agent_trace(trace_id, question, status, started_at) VALUES (?, ?, 'RUNNING', NOW())", traceId, question);
-        return traceId;
+    private long elapsedMs(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
     }
 
-    private void saveTrace(String traceId, String type, String summary) {
-        jdbcTemplate.update("INSERT INTO analytics_agent_trace_step(trace_id, step_number, step_type, summary) VALUES (?, 1, ?, ?)", traceId, type, summary);
+    public record WorkOrder(String workOrderNo, String region, String groupName, String title, String severity, String status,
+                            String traceId, String correlationId) {
+        public WorkOrder(String workOrderNo, String region, String groupName, String title, String severity, String status, String traceId) {
+            this(workOrderNo, region, groupName, title, severity, status, traceId, null);
+        }
     }
-
-    private void finishTrace(String traceId, String status) {
-        jdbcTemplate.update("UPDATE analytics_agent_trace SET status=?, completed_at=NOW() WHERE trace_id=?", status, traceId);
-    }
-
-    public record WorkOrder(String workOrderNo, String region, String groupName, String title, String severity, String status, String traceId) { }
 }

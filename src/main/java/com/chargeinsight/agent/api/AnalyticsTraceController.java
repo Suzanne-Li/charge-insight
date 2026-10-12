@@ -32,4 +32,9 @@ public class AnalyticsTraceController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Trace 不存在");
         }
     }
+
+    @GetMapping("/correlations/{correlationId}")
+    public Map<String, Object> correlation(@PathVariable String correlationId) {
+        return Map.of("status", "SUCCESS", "traces", traceService.correlation(correlationId));
+    }
 }

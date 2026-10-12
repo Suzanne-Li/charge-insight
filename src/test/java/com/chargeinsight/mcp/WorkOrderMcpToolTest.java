@@ -26,10 +26,12 @@ class WorkOrderMcpToolTest {
                 "WO-1", "华东", "上海私桩共享桩群1", "通信故障", "P2", "OPEN", null);
         when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq("华东"), eq(10))).thenReturn(List.of(workOrder));
 
-        List<WorkOrderMcpTool.WorkOrder> results = tool.listOpenWorkOrders("华东", 10);
+        String correlationId = "a".repeat(32);
+        List<WorkOrderMcpTool.WorkOrder> results = tool.listOpenWorkOrders("华东", 10, correlationId);
 
         assertThat(results).hasSize(1);
         assertThat(results.get(0).traceId()).isNotBlank();
+        assertThat(results.get(0).correlationId()).isEqualTo(correlationId);
         verify(jdbcTemplate, times(3)).update(anyString(), any(Object[].class));
     }
 
