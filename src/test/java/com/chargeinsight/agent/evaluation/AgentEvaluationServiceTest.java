@@ -42,6 +42,11 @@ class AgentEvaluationServiceTest {
                     assertThat(evaluationCase.regionScopes()).containsExactly("华东");
                     assertThat(evaluationCase.expectedException()).isEqualTo("RegionAccessDeniedException");
                 });
+        AgentEvaluationService.EvaluationCase anomaly = evaluationService.cases().stream()
+                .filter(value -> value.id().equals("anomaly-root-cause-shanghai-group-1")).findFirst().orElseThrow();
+        assertThat(anomaly.expectedFirstTool()).isEqualTo("compareAnomalyEvidence");
+        assertThat(anomaly.maxToolCalls()).isEqualTo(2);
+        assertThat(anomaly.requiredAnswerPhrases()).contains("同期相关", "不构成直接因果");
     }
 
     @AfterEach
@@ -147,7 +152,7 @@ class AgentEvaluationServiceTest {
                     : question.contains("按城市") ? List.of("energy_kwh")
                     : List.of("gmv_amount", "available_pile_count", "energy_kwh");
             List<String> tools = switch (intent) {
-                case ANOMALY_ROOT_CAUSE -> List.of("compareAnomalyEvidence", "queryOperationTrend", "rankGroups");
+                case ANOMALY_ROOT_CAUSE -> List.of("compareAnomalyEvidence", "rankGroups");
                 case FAULT_ANALYSIS -> question.contains("上海") ? List.of("queryFaultBreakdown") : List.of("rankFaultGroups");
                 case TREND -> List.of("queryOperationTrend");
                 case RANKING -> question.contains("通信故障") ? List.of("rankFaultGroups") : List.of("rankGroups");
@@ -174,8 +179,12 @@ class AgentEvaluationServiceTest {
                     .map(key -> new AnalyticsDataset.Field(key, key, "TEXT", "")).toList(), rows);
             AnalysisPlan plan = new AnalysisPlan(intent, metrics,
                     new AnalysisPlan.Scope("华东", null, null, "最近一周"), List.of(), List.of());
-            AnalyticsToolRouter.ToolExecution execution = new AnalyticsToolRouter.ToolExecution(tools, Map.of(), List.of());
-            return new AnalysisResult("SUCCESS", "trace", requestedSessionId, "answer", dataset, plan, execution,
+            List<AnalyticsToolRouter.ToolAudit> audits = tools.stream()
+                    .map(tool -> new AnalyticsToolRouter.ToolAudit(tool, Map.of(), 1, "rows=1")).toList();
+            AnalyticsToolRouter.ToolExecution execution = new AnalyticsToolRouter.ToolExecution(tools, Map.of(), audits);
+            String answer = intent == AnalysisPlan.Intent.ANOMALY_ROOT_CAUSE
+                    ? "该故障与业务指标变化为同期相关线索，不构成直接因果证明。" : "answer";
+            return new AnalysisResult("SUCCESS", "trace", requestedSessionId, answer, dataset, plan, execution,
                     List.of(), List.of(), List.of(), Instant.now(), Instant.now());
         }
     }

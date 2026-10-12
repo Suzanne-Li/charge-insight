@@ -5,10 +5,14 @@
     "expectedStatus": "SUCCESS",
     "expectedIntent": "ANOMALY_ROOT_CAUSE",
     "requiredMetrics": ["gmv_amount"],
-    "requiredTools": ["compareAnomalyEvidence", "queryOperationTrend", "rankGroups"],
+    "requiredTools": ["compareAnomalyEvidence"],
     "requiredDatasetFields": ["period", "gmvAmount"],
     "minimumRows": 2,
-    "expectedSqlFallback": false
+    "expectedSqlFallback": false,
+    "expectedFirstTool": "compareAnomalyEvidence",
+    "maxToolCalls": 2,
+    "requiredAnswerPhrases": ["同期相关", "不构成直接因果"],
+    "forbiddenAnswerPhrases": ["直接导致"]
   },
   {
     "id": "fault-analysis-shanghai-group-1",
