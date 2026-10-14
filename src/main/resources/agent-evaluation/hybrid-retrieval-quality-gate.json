@@ -1,0 +1,7 @@
+{
+  "version": "hybrid-colloquial-holdout-v1",
+  "strategy": "BM25_DENSE_RRF",
+  "split": "COLLOQUIAL_HOLDOUT",
+  "expectedCaseCount": 24,
+  "minimumHitAt3": 0.9583
+}

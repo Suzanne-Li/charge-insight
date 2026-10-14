@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/** Privileged, evaluation-only comparison; it does not alter the production Dense-first retriever. */
+/** Privileged, query-only comparison of Dense and RRF evidence; it does not alter Planner routing. */
 @RestController
 @RequestMapping("/api/admin/planner-retrieval-comparison")
 public class PlannerRetrievalComparisonController {

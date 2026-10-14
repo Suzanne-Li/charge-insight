@@ -23,11 +23,13 @@ public class RetrievalEvaluationService {
     private static final String CASES_RESOURCE = "agent-evaluation/retrieval-cases.json";
     private static final String EXPANDED_CASES_RESOURCE = "agent-evaluation/retrieval-expanded-cases.json";
     private static final String COLLOQUIAL_HOLDOUT_RESOURCE = "agent-evaluation/retrieval-colloquial-holdout-cases.json";
+    private static final String HYBRID_QUALITY_GATE_RESOURCE = "agent-evaluation/hybrid-retrieval-quality-gate.json";
     private final MetricKnowledgeService knowledgeService;
     private final DenseKnowledgeRetriever denseRetriever;
     private final MixedKnowledgeRetriever mixedRetriever;
     private final KnowledgeTopicResolver topicResolver = new KnowledgeTopicResolver();
     private final List<RetrievalCase> cases;
+    private final HybridQualityGate qualityGate;
 
     public RetrievalEvaluationService(MetricKnowledgeService knowledgeService, ObjectMapper objectMapper) {
         this(knowledgeService, null, null, objectMapper);
@@ -40,6 +42,7 @@ public class RetrievalEvaluationService {
         this.denseRetriever = denseRetriever;
         this.mixedRetriever = mixedRetriever;
         this.cases = loadCases(objectMapper);
+        this.qualityGate = loadQualityGate(objectMapper);
     }
 
     public RetrievalReport run() {
@@ -65,12 +68,39 @@ public class RetrievalEvaluationService {
                 .map(value -> value.document().id()).toList()));
     }
 
-    /** Runs BM25 + Dense RRF using the same candidates and metrics; it does not change Planner routing. */
+    /** Runs the same BM25 + Dense RRF candidate path used by production planning against labelled cases. */
     public CandidateReport runRrf(EvaluationSplit split) {
         requireDenseCandidates();
         List<RetrievalCase> selected = selectedCases(split);
         return new CandidateReport("BM25_DENSE_RRF", split, selected.size(), evaluate(selected, question -> mixedRetriever.retrieve(question, EVALUATION_CANDIDATE_K).stream()
                 .map(value -> value.document().id()).toList()));
+    }
+
+    /**
+     * Executes the production-equivalent BM25 + Dense + RRF path against the frozen colloquial
+     * holdout and compares its result to the versioned quality floor. This method intentionally
+     * requires a live vector index: a lexical-only run must not be mistaken for hybrid quality.
+     */
+    public HybridQualityReport verifyHybridQualityGate() {
+        CandidateReport report = runRrf(qualityGate.split());
+        return assessHybridQuality(report);
+    }
+
+    HybridQualityReport assessHybridQuality(CandidateReport report) {
+        if (!qualityGate.strategy().equals(report.strategy()) || qualityGate.split() != report.split()) {
+            throw new IllegalArgumentException("混合检索质量门槛与评测策略或分组不一致");
+        }
+        if (qualityGate.expectedCaseCount() != report.caseCount()) {
+            throw new IllegalStateException("混合检索评测案例数量变化：期望 " + qualityGate.expectedCaseCount()
+                    + "，实际 " + report.caseCount() + "；请重新标注并更新质量门槛");
+        }
+        double hitAt3 = report.metrics().hitAt3();
+        return new HybridQualityReport(qualityGate.version(), report.strategy(), report.split(), report.caseCount(),
+                report.metrics(), qualityGate.minimumHitAt3(), hitAt3 >= qualityGate.minimumHitAt3());
+    }
+
+    public HybridQualityGate qualityGate() {
+        return qualityGate;
     }
 
     /**
@@ -170,6 +200,19 @@ public class RetrievalEvaluationService {
         }
     }
 
+    private HybridQualityGate loadQualityGate(ObjectMapper objectMapper) {
+        try (var input = new ClassPathResource(HYBRID_QUALITY_GATE_RESOURCE).getInputStream()) {
+            HybridQualityGate gate = objectMapper.readValue(input, HybridQualityGate.class);
+            if (!"BM25_DENSE_RRF".equals(gate.strategy()) || gate.split() != EvaluationSplit.COLLOQUIAL_HOLDOUT
+                    || gate.expectedCaseCount() < 1 || gate.minimumHitAt3() < 0 || gate.minimumHitAt3() > 1) {
+                throw new IllegalStateException("混合检索质量门槛配置无效");
+            }
+            return gate;
+        } catch (IOException exception) {
+            throw new IllegalStateException("无法加载混合检索质量门槛：" + HYBRID_QUALITY_GATE_RESOURCE, exception);
+        }
+    }
+
     private EvaluationSplit splitOf(RetrievalCase retrievalCase) {
         if (retrievalCase.split() == null || retrievalCase.split().isBlank()) return EvaluationSplit.REGRESSION;
         return EvaluationSplit.valueOf(retrievalCase.split());
@@ -204,6 +247,10 @@ public class RetrievalEvaluationService {
 
     public record StrategyMetrics(double hitAt3, double recallAt5, double mrrAt5) { }
     public record CandidateReport(String strategy, EvaluationSplit split, int caseCount, StrategyMetrics metrics) { }
+    public record HybridQualityGate(String version, String strategy, EvaluationSplit split, int expectedCaseCount,
+                                    double minimumHitAt3) { }
+    public record HybridQualityReport(String gateVersion, String strategy, EvaluationSplit split, int caseCount,
+                                      StrategyMetrics metrics, double minimumHitAt3, boolean passed) { }
     public record RetrievalAuditReport(EvaluationSplit split, int caseCount, List<RetrievalAuditCase> cases) { }
     public record RetrievalAuditCase(String id, String question, List<String> expectedTopics,
                                      StrategyAudit bm25, StrategyAudit dense, StrategyAudit rrf) { }

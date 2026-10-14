@@ -41,8 +41,8 @@ public class MetricKnowledgeService {
     }
 
     /**
-     * Exposes deterministic retrieval strategies for offline evaluation. Production planning continues
-     * to use {@link RetrievalStrategy#LEXICAL_FUSION} through {@link #retrieve(String, int)}.
+     * Exposes deterministic lexical retrieval strategies for offline comparison. Production planning
+     * enters through ProductionKnowledgeRetriever, which uses the BM25 result as one RRF input.
      */
     public List<Document> retrieve(String query, int topK, RetrievalStrategy strategy) {
         if (topK < 1) {
