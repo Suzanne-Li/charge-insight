@@ -130,6 +130,24 @@ public class AgentEvaluationService {
                 mismatches.add("受控 SQL 兜底期望 " + evaluationCase.expectedSqlFallback() + "，实际 " + actualSqlFallback);
             }
         }
+        List<com.chargeinsight.agent.tool.AnalyticsToolRouter.ToolAudit> toolAudits = result.toolExecution() == null
+                ? List.of() : result.toolExecution().toolAudits();
+        if (evaluationCase.expectedFirstTool() != null && !evaluationCase.expectedFirstTool().isBlank()) {
+            if (toolAudits.isEmpty() || !evaluationCase.expectedFirstTool().equals(toolAudits.get(0).toolName())) {
+                mismatches.add("首个工具期望 " + evaluationCase.expectedFirstTool()
+                        + "，实际 " + (toolAudits.isEmpty() ? "无工具调用" : toolAudits.get(0).toolName()));
+            }
+        }
+        if (evaluationCase.maxToolCalls() != null && toolAudits.size() > evaluationCase.maxToolCalls()) {
+            mismatches.add("工具调用数最多 " + evaluationCase.maxToolCalls() + "，实际 " + toolAudits.size());
+        }
+        String answer = result.answer() == null ? "" : result.answer();
+        for (String requiredPhrase : evaluationCase.requiredAnswerPhrases()) {
+            if (!answer.contains(requiredPhrase)) mismatches.add("回答缺少必要表述：" + requiredPhrase);
+        }
+        for (String forbiddenPhrase : evaluationCase.forbiddenAnswerPhrases()) {
+            if (answer.contains(forbiddenPhrase)) mismatches.add("回答包含禁止表述：" + forbiddenPhrase);
+        }
         if (result.dataset() == null) {
             if (!evaluationCase.requiredDatasetFields().isEmpty() || evaluationCase.minimumRows() > 0) {
                 mismatches.add("未返回 Dataset");
@@ -176,12 +194,16 @@ public class AgentEvaluationService {
     public record EvaluationCase(String id, String question, String expectedStatus, String expectedIntent,
                                  List<String> requiredMetrics, List<String> requiredTools,
                                  List<String> requiredDatasetFields, int minimumRows, Boolean expectedSqlFallback,
-                                 String runAsUsername, List<String> regionScopes, String expectedException) {
+                                 String runAsUsername, List<String> regionScopes, String expectedException,
+                                 String expectedFirstTool, Integer maxToolCalls, List<String> requiredAnswerPhrases,
+                                 List<String> forbiddenAnswerPhrases) {
         public EvaluationCase {
             requiredMetrics = requiredMetrics == null ? List.of() : List.copyOf(requiredMetrics);
             requiredTools = requiredTools == null ? List.of() : List.copyOf(requiredTools);
             requiredDatasetFields = requiredDatasetFields == null ? List.of() : List.copyOf(requiredDatasetFields);
             regionScopes = regionScopes == null ? List.of() : List.copyOf(regionScopes);
+            requiredAnswerPhrases = requiredAnswerPhrases == null ? List.of() : List.copyOf(requiredAnswerPhrases);
+            forbiddenAnswerPhrases = forbiddenAnswerPhrases == null ? List.of() : List.copyOf(forbiddenAnswerPhrases);
         }
     }
     public record CaseResult(String caseId, boolean passed, long durationMs, List<String> mismatches, String traceId) { }
