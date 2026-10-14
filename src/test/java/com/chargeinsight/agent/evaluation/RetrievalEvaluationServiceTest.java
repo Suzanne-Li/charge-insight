@@ -30,4 +30,22 @@ class RetrievalEvaluationServiceTest {
                 .withMessage("当前构造方式不支持 Dense/RRF 评测");
         System.out.println("RETRIEVAL_EVALUATION=" + report);
     }
+
+    @Test
+    void loadsTheVersionedRrfQualityGateAndAcceptsThe9583PercentFloor() {
+        var service = new RetrievalEvaluationService(new MetricKnowledgeService(), new ObjectMapper());
+
+        assertThat(service.qualityGate()).extracting("version", "strategy", "split", "expectedCaseCount", "minimumHitAt3")
+                .containsExactly("hybrid-colloquial-holdout-v1", "BM25_DENSE_RRF",
+                        RetrievalEvaluationService.EvaluationSplit.COLLOQUIAL_HOLDOUT, 24, 0.9583d);
+        var passing = service.assessHybridQuality(new RetrievalEvaluationService.CandidateReport("BM25_DENSE_RRF",
+                RetrievalEvaluationService.EvaluationSplit.COLLOQUIAL_HOLDOUT, 24,
+                new RetrievalEvaluationService.StrategyMetrics(0.9583d, 0.9d, 0.9d)));
+        var failing = service.assessHybridQuality(new RetrievalEvaluationService.CandidateReport("BM25_DENSE_RRF",
+                RetrievalEvaluationService.EvaluationSplit.COLLOQUIAL_HOLDOUT, 24,
+                new RetrievalEvaluationService.StrategyMetrics(0.9167d, 0.9d, 0.9d)));
+
+        assertThat(passing.passed()).isTrue();
+        assertThat(failing.passed()).isFalse();
+    }
 }

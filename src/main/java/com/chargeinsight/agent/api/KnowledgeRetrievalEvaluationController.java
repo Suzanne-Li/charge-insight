@@ -29,4 +29,10 @@ public class KnowledgeRetrievalEvaluationController {
     public Map<String, Object> audit(@RequestParam(defaultValue = "COLLOQUIAL_HOLDOUT") EvaluationSplit split) {
         return Map.of("status", "SUCCESS", "result", evaluation.audit(split));
     }
+
+    @GetMapping("/hybrid-gate")
+    public Map<String, Object> hybridQualityGate() {
+        var report = evaluation.verifyHybridQualityGate();
+        return Map.of("status", report.passed() ? "SUCCESS" : "FAILED", "result", report);
+    }
 }
